@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 
 export default function CallbackPage() {
@@ -8,9 +8,15 @@ export default function CallbackPage() {
   const [message, setMessage] = useState('Processing your login...')
   const searchParams = useSearchParams()
   const router = useRouter()
+  const isProcessing = useRef(false)
 
   useEffect(() => {
     const handleCallback = async () => {
+      // Prevent duplicate processing
+      if (isProcessing.current) {
+        return
+      }
+      isProcessing.current = true
       try {
         const code = searchParams.get('code')
         const state = searchParams.get('state')
@@ -65,6 +71,7 @@ export default function CallbackPage() {
         console.error('Callback error:', error)
         setStatus('error')
         setMessage(error instanceof Error ? error.message : 'An unknown error occurred')
+        isProcessing.current = false // Reset on error so user can retry
       }
     }
 

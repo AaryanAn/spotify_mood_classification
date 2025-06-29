@@ -29,14 +29,63 @@ class SpotifyService:
             return None
     
     async def get_user_playlists(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get user's playlists"""
+        """Get user's playlists with automatic pagination to fetch ALL playlists"""
         try:
+            all_playlists = []
+            current_offset = offset
+            batch_size = min(limit, 50)  # Spotify API max is 50 per request
+            
+            logger.info("Starting to fetch user playlists", 
+                       requested_limit=limit, 
+                       starting_offset=offset)
+            
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, 
-                lambda: self.client.current_user_playlists(limit=limit, offset=offset)
-            )
-            return result.get('items', [])
+            
+            while True:
+                # Fetch a batch of playlists
+                logger.debug("Fetching playlist batch", 
+                           offset=current_offset, 
+                           batch_size=batch_size)
+                
+                result = await loop.run_in_executor(
+                    None, 
+                    lambda: self.client.current_user_playlists(limit=batch_size, offset=current_offset)
+                )
+                
+                items = result.get('items', [])
+                if not items:
+                    # No more playlists to fetch
+                    break
+                
+                all_playlists.extend(items)
+                logger.debug("Fetched playlist batch", 
+                           batch_count=len(items),
+                           total_so_far=len(all_playlists))
+                
+                # Check if we've reached the requested limit
+                if len(all_playlists) >= limit:
+                    all_playlists = all_playlists[:limit]
+                    break
+                
+                # Check if this was the last batch (fewer items than requested)
+                if len(items) < batch_size:
+                    break
+                
+                # Move to next batch
+                current_offset += batch_size
+                
+                # Safety check to prevent infinite loops
+                if current_offset > 10000:  # Reasonable upper limit
+                    logger.warning("Reached safety limit for playlist fetching", 
+                                 total_fetched=len(all_playlists))
+                    break
+            
+            logger.info("Completed fetching user playlists", 
+                       total_playlists=len(all_playlists),
+                       requested_limit=limit)
+            
+            return all_playlists
+            
         except SpotifyException as e:
             logger.error("Failed to get user playlists", error=str(e))
             return []

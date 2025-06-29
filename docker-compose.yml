@@ -41,6 +41,7 @@ services:
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
       - SPOTIFY_REDIRECT_URI=${SPOTIFY_REDIRECT_URI:-http://127.0.0.1:8080/callback}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - GENIUS_ACCESS_TOKEN=${GENIUS_ACCESS_TOKEN}
       - ENVIRONMENT=${ENVIRONMENT:-development}
     depends_on:
       postgres:

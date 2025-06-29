@@ -23,7 +23,7 @@ settings = get_settings()
 
 @router.get("/")
 async def get_user_playlists(
-    limit: int = 20,
+    limit: int = 10000,  # High default to fetch all playlists
     offset: int = 0,
     current_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)

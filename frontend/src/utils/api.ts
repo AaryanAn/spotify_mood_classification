@@ -74,7 +74,7 @@ export const authApi = {
 
 // Playlist APIs
 export const playlistApi = {
-  getUserPlaylists: async (limit = 20, offset = 0): Promise<SpotifyPlaylistsResponse> => {
+  getUserPlaylists: async (limit = 10000, offset = 0): Promise<SpotifyPlaylistsResponse> => {
     const response: AxiosResponse<SpotifyPlaylistsResponse> = await api.get(
       `/api/playlists?limit=${limit}&offset=${offset}`
     );

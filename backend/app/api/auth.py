@@ -70,14 +70,17 @@ async def callback(
         # Verify state parameter
         redis_client = aioredis.from_url(settings.redis_url)
         stored_state = await redis_client.get(f"oauth_state:{state}")
-        await redis_client.delete(f"oauth_state:{state}")
-        await redis_client.close()
         
         if not stored_state:
+            await redis_client.close()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or expired state parameter"
             )
+        
+        # Only delete the state after successful validation
+        await redis_client.delete(f"oauth_state:{state}")
+        await redis_client.close()
         
         # Exchange authorization code for access token
         sp_oauth = get_spotify_oauth()
