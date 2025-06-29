@@ -214,16 +214,40 @@ async def refresh_token(
 
 @router.post("/logout")
 async def logout(current_user: dict = Depends(verify_token)):
-    """Logout user (invalidate tokens)"""
+    """Logout user"""
+    # In a production app, you might want to blacklist the JWT token
+    # For now, we'll just return success
+    logger.info("User logged out", user_id=current_user["sub"])
+    return {"message": "Successfully logged out"}
+
+
+@router.get("/debug-token")
+async def debug_token(
+    current_user: dict = Depends(verify_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """Debug endpoint to check token status"""
     try:
-        # In a production environment, you might want to blacklist the JWT token
-        # For now, we just return success as JWT tokens are stateless
-        logger.info("User logged out", user_id=current_user["sub"])
-        return {"message": "Logged out successfully"}
+        # Get user from database
+        result = await db.execute(
+            select(User).where(User.id == current_user["sub"])
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            return {"error": "User not found"}
+        
+        # Check token expiration
+        token_expired = user.token_expires_at < datetime.utcnow() if user.token_expires_at else True
+        
+        return {
+            "user_id": user.id,
+            "token_expires_at": user.token_expires_at.isoformat() if user.token_expires_at else None,
+            "token_expired": token_expired,
+            "has_refresh_token": bool(user.refresh_token),
+            "current_time": datetime.utcnow().isoformat()
+        }
     
     except Exception as e:
-        logger.error("Logout failed", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Logout failed"
-        ) 
+        logger.error("Token debug failed", error=str(e))
+        return {"error": str(e)} 

@@ -2,18 +2,20 @@
 Main FastAPI application for Spotify Mood Classification
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import structlog
 import uvicorn
+import os
+import time
 
 from app.api import auth, playlists, mood_analysis, health
 from app.models.database import init_db
 from app.utils.config import get_settings
 from app.utils.logging_config import setup_logging
 
-# Setup structured logging
+# Configure structured logging
 setup_logging()
 logger = structlog.get_logger()
 
@@ -24,16 +26,23 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    logger.info("Starting Spotify Mood Classification API")
+    logger.info("🚀 Starting Spotify Mood Classifier API")
+    settings = get_settings()
+    logger.info("📊 Configuration loaded", 
+                environment=settings.environment,
+                cors_origins=settings.cors_origins,
+                has_spotify_credentials=bool(settings.spotify_client_id and settings.spotify_client_secret))
+    
     await init_db()
+    logger.info("🗄️ Database initialized")
     yield
     # Shutdown
-    logger.info("Shutting down Spotify Mood Classification API")
+    logger.info("👋 Shutting down Spotify Mood Classifier API")
 
 
 app = FastAPI(
-    title="Spotify Mood Classification API",
-    description="Production-ready API for classifying Spotify playlist moods using ML",
+    title="Spotify Mood Classifier",
+    description="AI-powered mood classification for Spotify playlists",
     version="1.0.0",
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
@@ -46,7 +55,32 @@ app.add_middleware(
     allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app"] if settings.debug else ["yourdomain.com"],
 )
 
-# CORS middleware
+# Debug logging middleware
+@app.middleware("http")
+async def debug_logging_middleware(request: Request, call_next):
+    start_time = time.time()
+    
+    # Log incoming request
+    logger.info("📥 [REQUEST]", 
+                method=request.method,
+                url=str(request.url),
+                headers=dict(request.headers),
+                client_host=request.client.host if request.client else None)
+    
+    response = await call_next(request)
+    
+    # Log response
+    process_time = time.time() - start_time
+    logger.info("📤 [RESPONSE]",
+                method=request.method,
+                url=str(request.url),
+                status_code=response.status_code,
+                process_time=f"{process_time:.4f}s",
+                response_headers=dict(response.headers))
+    
+    return response
+
+# CORS middleware with debugging
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -55,18 +89,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+logger.info("🌐 CORS configured", origins=settings.cors_origins)
+
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(playlists.router, prefix="/api/playlists", tags=["playlists"])
 app.include_router(mood_analysis.router, prefix="/api/mood-analysis", tags=["mood-analysis"])
 
+logger.info("🛣️ API routes configured")
+
 
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {
-        "message": "Spotify Mood Classification API",
+        "message": "Spotify Mood Classifier API",
         "version": "1.0.0",
         "docs_url": "/docs" if settings.debug else None,
     }
@@ -89,9 +127,8 @@ async def internal_server_error_handler(request, exc):
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
-        host=settings.api_host,
-        port=settings.api_port,
-        reload=settings.reload,
-        workers=settings.api_workers if not settings.reload else 1,
-        log_level=settings.log_level.lower(),
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
     ) 

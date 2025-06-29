@@ -31,8 +31,13 @@ async def analyze_playlist_mood(
     db: AsyncSession = Depends(get_db)
 ):
     """Analyze playlist mood"""
+    logger.info("🎵 [DEBUG] Starting mood analysis", 
+                playlist_id=playlist_id, 
+                user_id=current_user_id)
+    
     try:
         # Check if user has access to this playlist
+        logger.info("🔍 [DEBUG] Checking playlist access")
         result = await db.execute(
             select(Playlist).where(
                 and_(Playlist.id == playlist_id, Playlist.user_id == current_user_id)
@@ -40,13 +45,19 @@ async def analyze_playlist_mood(
         )
         playlist = result.scalar_one_or_none()
         
+        logger.info("🔍 [DEBUG] Playlist access check result", 
+                    found=playlist is not None,
+                    playlist_name=playlist.name if playlist else None)
+        
         if not playlist:
+            logger.error("❌ [DEBUG] Playlist not found or access denied")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Playlist not found or access denied"
             )
         
         # Check if analysis already exists and is recent
+        logger.info("🔍 [DEBUG] Checking for existing analysis")
         result = await db.execute(
             select(MoodAnalysis).where(
                 and_(
@@ -60,25 +71,45 @@ async def analyze_playlist_mood(
         if existing_analysis:
             # Return existing analysis if less than 1 hour old
             time_diff = datetime.utcnow() - existing_analysis.created_at
+            logger.info("🔍 [DEBUG] Found existing analysis", 
+                        age_seconds=time_diff.total_seconds(),
+                        is_recent=time_diff.total_seconds() < 3600)
+            
             if time_diff.total_seconds() < 3600:  # 1 hour
-                return format_mood_analysis(existing_analysis)
+                logger.info("✅ [DEBUG] Returning cached analysis")
+                formatted_result = format_mood_analysis(existing_analysis)
+                logger.info("✅ [DEBUG] Formatted analysis result", 
+                           type=type(formatted_result),
+                           keys=list(formatted_result.keys()) if isinstance(formatted_result, dict) else "not_dict")
+                return formatted_result
         
         # Add background task to perform analysis
+        logger.info("🚀 [DEBUG] Starting background analysis task")
         background_tasks.add_task(
             analyze_playlist_mood_background,
             playlist_id,
             current_user_id
         )
         
-        return {"message": "Mood analysis started", "playlist_id": playlist_id}
+        success_response = {"message": "Mood analysis started", "playlist_id": playlist_id}
+        logger.info("✅ [DEBUG] Analysis task started successfully", 
+                   response=success_response,
+                   response_type=type(success_response))
+        return success_response
         
-    except HTTPException:
+    except HTTPException as he:
+        logger.error("❌ [DEBUG] HTTP Exception in mood analysis", 
+                    status_code=he.status_code,
+                    detail=he.detail)
         raise
     except Exception as e:
-        logger.error("Failed to start mood analysis", error=str(e), playlist_id=playlist_id)
+        logger.error("❌ [DEBUG] Unexpected error in mood analysis", 
+                    error=str(e), 
+                    error_type=type(e).__name__,
+                    playlist_id=playlist_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to start mood analysis"
+            detail=f"Failed to start mood analysis: {str(e)}"
         )
 
 

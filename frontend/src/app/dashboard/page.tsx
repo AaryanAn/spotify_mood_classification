@@ -113,54 +113,118 @@ export default function Dashboard() {
   }
 
   const analyzePlaylist = async (playlist: Playlist) => {
+    console.log('🎵 [DEBUG] Starting playlist analysis:', {
+      playlistId: playlist.id,
+      playlistName: playlist.name,
+      timestamp: new Date().toISOString()
+    })
+    
     setAnalyzingPlaylist(playlist.id)
     setSelectedPlaylist(playlist)
     setAnalysis(null)
 
     try {
       const token = localStorage.getItem('access_token')
+      console.log('🔑 [DEBUG] Token check:', {
+        hasToken: !!token,
+        tokenPrefix: token ? token.substring(0, 20) + '...' : 'null',
+        tokenLength: token?.length || 0
+      })
       
       // First, save the playlist to our database
-      const saveResponse = await fetch(`http://localhost:8000/api/playlists/${playlist.id}/save`, {
+      const saveUrl = `http://localhost:8000/api/playlists/${playlist.id}/save`
+      console.log('💾 [DEBUG] Attempting to save playlist:', {
+        url: saveUrl,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token?.substring(0, 20)}...`,
+        }
+      })
+
+      const saveResponse = await fetch(saveUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       })
 
+      console.log('💾 [DEBUG] Save response:', {
+        status: saveResponse.status,
+        statusText: saveResponse.statusText,
+        ok: saveResponse.ok,
+        headers: Object.fromEntries(saveResponse.headers.entries())
+      })
+
       if (saveResponse.status === 401 || saveResponse.status === 403) {
+        console.error('🚫 [DEBUG] Token expired during save')
         alert('Your session has expired. Please log in again.')
         handleLogout()
         return
       }
 
       if (!saveResponse.ok) {
-        throw new Error('Failed to save playlist')
+        const errorText = await saveResponse.text()
+        console.error('💾 [DEBUG] Save failed:', {
+          status: saveResponse.status,
+          errorText: errorText
+        })
+        throw new Error(`Failed to save playlist: ${saveResponse.status} - ${errorText}`)
       }
 
-      // Start mood analysis
-      const analysisResponse = await fetch(`http://localhost:8000/api/mood-analysis/${playlist.id}/analyze`, {
+      console.log('✅ [DEBUG] Playlist saved successfully')
+
+      // Then analyze the playlist  
+      const analyzeUrl = `http://localhost:8000/api/mood-analysis/${playlist.id}/analyze`
+      console.log('🔍 [DEBUG] Attempting to analyze playlist:', {
+        url: analyzeUrl,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token?.substring(0, 20)}...`,
+        }
+      })
+
+      const response = await fetch(analyzeUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       })
 
-      if (analysisResponse.status === 401 || analysisResponse.status === 403) {
+      console.log('🔍 [DEBUG] Analysis response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
+      })
+
+      if (response.status === 401 || response.status === 403) {
+        console.error('🚫 [DEBUG] Token expired during analysis')
         alert('Your session has expired. Please log in again.')
         handleLogout()
         return
       }
 
-      if (!analysisResponse.ok) {
-        throw new Error('Failed to start analysis')
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('🔍 [DEBUG] Analysis failed:', {
+          status: response.status,
+          errorText: errorText
+        })
+        throw new Error(`Failed to analyze playlist: ${response.status} - ${errorText}`)
       }
 
+      console.log('✅ [DEBUG] Analysis started successfully')
+      
       // Poll for results
       await pollForAnalysisResults(playlist.id)
-
     } catch (error) {
-      console.error('Error analyzing playlist:', error)
+      console.error('❌ [DEBUG] Error analyzing playlist:', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace'
+      })
       alert('Failed to analyze playlist. Your session may have expired. Please try logging out and back in.')
     } finally {
       setAnalyzingPlaylist(null)
