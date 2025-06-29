@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import structlog
 
 from app.utils.config import get_settings
@@ -98,4 +100,40 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
 
 def get_current_user_id(token_payload: Dict[str, Any] = Depends(verify_token)) -> str:
     """Get current user ID from token"""
-    return token_payload["sub"] 
+    return token_payload["sub"]
+
+
+async def get_current_user(
+    token_payload: Dict[str, Any] = Depends(verify_token)
+) -> Dict[str, Any]:
+    """Get current user with access token from database"""
+    from app.models.database import async_session_maker, User
+    
+    user_id = token_payload["sub"]
+    
+    async with async_session_maker() as db:
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        if not user.access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not authenticated with Spotify"
+            )
+        
+        return {
+            "id": user.id,
+            "display_name": user.display_name,
+            "email": user.email,
+            "access_token": user.access_token,
+            "refresh_token": user.refresh_token,
+            "token_expires_at": user.token_expires_at
+        } 

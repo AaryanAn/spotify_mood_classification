@@ -1,275 +1,242 @@
 """
-Mood classification service using machine learning
+Genre and Metadata-Based Mood Classification Service
+Since Spotify's audio features API was deprecated (Nov 2024), this classifier uses:
+- Artist genres
+- Track metadata (popularity, duration, release year, explicit content)
+- Artist popularity and follower metrics
+- Text analysis of track/artist names
 """
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
-from typing import Dict, List, Any, Tuple
-import structlog
-import joblib
-import os
-from pathlib import Path
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Any, Optional
+import structlog
+import re
+from collections import Counter
+from datetime import datetime
 
 logger = structlog.get_logger()
 
 
 class MoodClassifier:
-    """Machine learning model for classifying playlist moods"""
-    
-    # Mood categories based on valence and energy
-    MOOD_CATEGORIES = {
-        "happy": {"valence": (0.6, 1.0), "energy": (0.6, 1.0)},
-        "energetic": {"valence": (0.4, 0.8), "energy": (0.7, 1.0)},
-        "calm": {"valence": (0.4, 0.8), "energy": (0.0, 0.4)},
-        "sad": {"valence": (0.0, 0.4), "energy": (0.0, 0.6)},
-        "angry": {"valence": (0.0, 0.5), "energy": (0.6, 1.0)},
-        "romantic": {"valence": (0.5, 0.9), "energy": (0.0, 0.5)},
-        "melancholic": {"valence": (0.2, 0.6), "energy": (0.2, 0.5)},
-        "upbeat": {"valence": (0.7, 1.0), "energy": (0.5, 0.9)},
-    }
-    
-    MOOD_DESCRIPTIONS = {
-        "happy": "Joyful and positive music that lifts your spirits",
-        "energetic": "High-energy music perfect for workouts or motivation",
-        "calm": "Peaceful and relaxing music for unwinding",
-        "sad": "Melancholic music that touches deep emotions",
-        "angry": "Intense and aggressive music expressing frustration",
-        "romantic": "Tender and loving music for intimate moments",
-        "melancholic": "Bittersweet music with a touch of nostalgia",
-        "upbeat": "Cheerful and lively music that makes you want to dance",
-    }
+    """Mood classifier using genres, metadata, and text analysis"""
     
     def __init__(self):
-        self.model = None
-        self.scaler = None
-        self.model_version = "1.0.0"
-        self.executor = ThreadPoolExecutor(max_workers=2)
-        self._initialize_model()
-    
-    def _initialize_model(self):
-        """Initialize or load the mood classification model"""
-        try:
-            model_path = Path("ml/models")
-            model_path.mkdir(parents=True, exist_ok=True)
-            
-            model_file = model_path / "mood_classifier.pkl"
-            scaler_file = model_path / "mood_scaler.pkl"
-            
-            if model_file.exists() and scaler_file.exists():
-                # Load existing model
-                self.model = joblib.load(model_file)
-                self.scaler = joblib.load(scaler_file)
-                logger.info("Loaded existing mood classification model")
-            else:
-                # Create and train new model
-                self._create_model()
-                logger.info("Created new mood classification model")
-                
-        except Exception as e:
-            logger.error("Failed to initialize mood classifier", error=str(e))
-            # Fallback to rule-based classification
-            self.model = None
-            self.scaler = None
-    
-    def _create_model(self):
-        """Create and train a new mood classification model"""
-        try:
-            # Generate synthetic training data based on mood categories
-            X, y = self._generate_training_data()
-            
-            # Initialize scaler
-            self.scaler = StandardScaler()
-            X_scaled = self.scaler.fit_transform(X)
-            
-            # Train Random Forest classifier
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
-                random_state=42,
-                class_weight='balanced'
-            )
-            self.model.fit(X_scaled, y)
-            
-            # Save model and scaler
-            model_path = Path("ml/models")
-            joblib.dump(self.model, model_path / "mood_classifier.pkl")
-            joblib.dump(self.scaler, model_path / "mood_scaler.pkl")
-            
-            logger.info("Trained and saved new mood classification model")
-            
-        except Exception as e:
-            logger.error("Failed to create mood classification model", error=str(e))
-            raise
-    
-    def _generate_training_data(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Generate synthetic training data for mood classification"""
-        np.random.seed(42)
+        self.model_version = "genre-metadata-v1.0"
         
-        features_list = []
-        labels_list = []
-        
-        # Generate samples for each mood category
-        for mood, ranges in self.MOOD_CATEGORIES.items():
-            n_samples = 200  # Number of samples per mood
+        # Genre to mood mapping
+        self.genre_mood_map = {
+            # Happy/Upbeat genres
+            'pop': {'happy': 0.8, 'upbeat': 0.9, 'energetic': 0.6},
+            'dance': {'upbeat': 0.9, 'energetic': 0.8, 'happy': 0.7},
+            'funk': {'upbeat': 0.8, 'energetic': 0.7, 'happy': 0.6},
+            'disco': {'upbeat': 0.9, 'happy': 0.8, 'energetic': 0.6},
+            'reggae': {'calm': 0.7, 'happy': 0.6, 'upbeat': 0.5},
+            'afrobeat': {'upbeat': 0.8, 'energetic': 0.7, 'happy': 0.8},
             
-            for _ in range(n_samples):
-                # Generate features within mood-specific ranges
-                valence = np.random.uniform(ranges["valence"][0], ranges["valence"][1])
-                energy = np.random.uniform(ranges["energy"][0], ranges["energy"][1])
-                
-                # Generate correlated features
-                danceability = valence * 0.7 + energy * 0.3 + np.random.normal(0, 0.1)
-                danceability = np.clip(danceability, 0, 1)
-                
-                acousticness = 1 - energy + np.random.normal(0, 0.15)
-                acousticness = np.clip(acousticness, 0, 1)
-                
-                tempo = 60 + energy * 140 + np.random.normal(0, 20)
-                tempo = np.clip(tempo, 60, 200)
-                
-                loudness = -60 + energy * 50 + np.random.normal(0, 5)
-                loudness = np.clip(loudness, -60, 0)
-                
-                speechiness = np.random.uniform(0, 0.3)
-                instrumentalness = np.random.uniform(0, 0.8)
-                liveness = np.random.uniform(0, 0.3)
-                
-                features = [
-                    valence, energy, danceability, acousticness, tempo,
-                    loudness, speechiness, instrumentalness, liveness
-                ]
-                
-                features_list.append(features)
-                labels_list.append(mood)
+            # Energetic genres
+            'rock': {'energetic': 0.8, 'upbeat': 0.6, 'angry': 0.4},
+            'punk': {'energetic': 0.9, 'angry': 0.7, 'upbeat': 0.5},
+            'metal': {'energetic': 0.9, 'angry': 0.8, 'aggressive': 0.9},
+            'hard rock': {'energetic': 0.8, 'upbeat': 0.6, 'angry': 0.5},
+            'electronic': {'energetic': 0.7, 'upbeat': 0.8, 'happy': 0.5},
+            'edm': {'energetic': 0.9, 'upbeat': 0.8, 'happy': 0.6},
+            'dubstep': {'energetic': 0.9, 'aggressive': 0.7, 'upbeat': 0.6},
+            'techno': {'energetic': 0.8, 'upbeat': 0.7, 'hypnotic': 0.6},
+            'house': {'upbeat': 0.8, 'energetic': 0.7, 'happy': 0.6},
+            
+            # Calm/Chill genres
+            'ambient': {'calm': 0.9, 'peaceful': 0.8, 'meditative': 0.7},
+            'chillout': {'calm': 0.8, 'relaxed': 0.8, 'peaceful': 0.6},
+            'lo-fi': {'calm': 0.8, 'melancholic': 0.5, 'peaceful': 0.7},
+            'new age': {'calm': 0.9, 'peaceful': 0.8, 'meditative': 0.8},
+            'meditation': {'calm': 0.9, 'peaceful': 0.9, 'meditative': 0.9},
+            
+            # Sad/Melancholic genres
+            'blues': {'sad': 0.8, 'melancholic': 0.9, 'soulful': 0.8},
+            'folk': {'melancholic': 0.6, 'calm': 0.6, 'nostalgic': 0.7},
+            'indie folk': {'melancholic': 0.7, 'calm': 0.6, 'introspective': 0.8},
+            'shoegaze': {'melancholic': 0.8, 'dreamy': 0.7, 'introspective': 0.6},
+            'emo': {'sad': 0.8, 'melancholic': 0.8, 'emotional': 0.9},
+            'gothic': {'melancholic': 0.8, 'dark': 0.9, 'sad': 0.7},
+            
+            # Romantic genres
+            'r&b': {'romantic': 0.8, 'sensual': 0.7, 'smooth': 0.8},
+            'soul': {'romantic': 0.7, 'emotional': 0.8, 'soulful': 0.9},
+            'neo soul': {'romantic': 0.8, 'sensual': 0.8, 'smooth': 0.7},
+            'jazz': {'romantic': 0.6, 'sophisticated': 0.8, 'smooth': 0.7},
+            'smooth jazz': {'romantic': 0.7, 'calm': 0.7, 'smooth': 0.9},
+            'bossa nova': {'romantic': 0.8, 'calm': 0.7, 'sophisticated': 0.6},
+            
+            # Aggressive/Angry genres
+            'hardcore': {'angry': 0.9, 'aggressive': 0.9, 'energetic': 0.8},
+            'death metal': {'angry': 0.9, 'aggressive': 0.9, 'dark': 0.8},
+            'thrash metal': {'angry': 0.8, 'aggressive': 0.8, 'energetic': 0.9},
+            'rap': {'energetic': 0.7, 'confident': 0.8, 'upbeat': 0.6},
+            'trap': {'energetic': 0.8, 'aggressive': 0.6, 'confident': 0.7},
+            'drill': {'aggressive': 0.8, 'dark': 0.7, 'energetic': 0.7},
+            
+            # Cultural/World genres
+            'latin': {'upbeat': 0.8, 'energetic': 0.7, 'happy': 0.8},
+            'salsa': {'upbeat': 0.9, 'energetic': 0.8, 'happy': 0.8},
+            'reggaeton': {'upbeat': 0.8, 'energetic': 0.8, 'sensual': 0.6},
+            'k-pop': {'upbeat': 0.8, 'energetic': 0.7, 'happy': 0.8},
+            'bollywood': {'upbeat': 0.7, 'energetic': 0.6, 'dramatic': 0.8},
+            
+            # Alternative/Indie
+            'indie': {'melancholic': 0.6, 'introspective': 0.7, 'alternative': 0.8},
+            'alternative': {'melancholic': 0.5, 'energetic': 0.6, 'edgy': 0.7},
+            'grunge': {'angry': 0.6, 'melancholic': 0.7, 'alternative': 0.8},
+        }
         
-        return np.array(features_list), np.array(labels_list)
+        # Mood keywords for text analysis
+        self.mood_keywords = {
+            'happy': ['happy', 'joy', 'celebrate', 'party', 'fun', 'good', 'sunshine', 'bright', 'smile'],
+            'sad': ['sad', 'cry', 'tear', 'lonely', 'hurt', 'pain', 'goodbye', 'miss', 'lost', 'broken'],
+            'angry': ['angry', 'hate', 'rage', 'mad', 'fight', 'war', 'destroy', 'kill', 'revenge'],
+            'romantic': ['love', 'heart', 'baby', 'kiss', 'forever', 'together', 'beautiful', 'darling', 'mine'],
+            'energetic': ['power', 'energy', 'fire', 'strong', 'loud', 'fast', 'run', 'jump', 'wild'],
+            'calm': ['calm', 'peace', 'quiet', 'still', 'gentle', 'soft', 'breathe', 'relax', 'zen'],
+            'melancholic': ['blue', 'grey', 'rain', 'alone', 'empty', 'shadow', 'dream', 'yesterday'],
+            'upbeat': ['up', 'high', 'fly', 'dance', 'move', 'groove', 'rhythm', 'beat', 'alive']
+        }
     
     async def classify_playlist_mood(self, tracks_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Classify the mood of a playlist based on track audio features"""
+        """
+        Classify playlist mood using genres, metadata, and text analysis
+        
+        Args:
+            tracks_data: List of track data with genres and metadata
+            
+        Returns:
+            Dict with mood classification results
+        """
         try:
             if not tracks_data:
-                return {"primary_mood": "unknown", "confidence": 0.0, "mood_distribution": {}}
+                return self._create_default_result()
             
-            # Extract features
-            features = self._extract_features(tracks_data)
+            mood_scores = Counter()
+            total_tracks = len(tracks_data)
             
-            if self.model and self.scaler:
-                # Use ML model for classification
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    self.executor,
-                    self._classify_with_model,
-                    features
-                )
+            # Analyze each track
+            for track_data in tracks_data:
+                track_moods = self._analyze_track_mood(track_data)
+                
+                # Add to overall mood scores
+                for mood, score in track_moods.items():
+                    mood_scores[mood] += score
+            
+            # Normalize scores
+            for mood in mood_scores:
+                mood_scores[mood] = mood_scores[mood] / total_tracks
+            
+            # Get primary mood and confidence
+            if mood_scores:
+                primary_mood = mood_scores.most_common(1)[0][0]
+                confidence = min(mood_scores[primary_mood], 1.0)
             else:
-                # Use rule-based classification as fallback
-                result = self._classify_with_rules(features)
-            
-            return result
-            
-        except Exception as e:
-            logger.error("Failed to classify playlist mood", error=str(e))
-            return {"primary_mood": "unknown", "confidence": 0.0, "mood_distribution": {}}
-    
-    def _extract_features(self, tracks_data: List[Dict[str, Any]]) -> np.ndarray:
-        """Extract and aggregate features from track data"""
-        if not tracks_data:
-            return np.array([])
-        
-        # Calculate average features across all tracks
-        feature_names = [
-            "valence", "energy", "danceability", "acousticness", "tempo",
-            "loudness", "speechiness", "instrumentalness", "liveness"
-        ]
-        
-        aggregated_features = []
-        for feature in feature_names:
-            values = [track.get(feature, 0) for track in tracks_data if track.get(feature) is not None]
-            avg_value = np.mean(values) if values else 0
-            aggregated_features.append(avg_value)
-        
-        return np.array(aggregated_features).reshape(1, -1)
-    
-    def _classify_with_model(self, features: np.ndarray) -> Dict[str, Any]:
-        """Classify mood using the trained ML model"""
-        try:
-            # Scale features
-            features_scaled = self.scaler.transform(features)
-            
-            # Get predictions and probabilities
-            prediction = self.model.predict(features_scaled)[0]
-            probabilities = self.model.predict_proba(features_scaled)[0]
+                primary_mood = "neutral"
+                confidence = 0.5
             
             # Create mood distribution
-            mood_distribution = {}
-            for i, mood in enumerate(self.model.classes_):
-                mood_distribution[mood] = float(probabilities[i])
+            mood_distribution = dict(mood_scores.most_common(8))
             
-            # Get confidence (max probability)
-            confidence = float(np.max(probabilities))
+            # Ensure we have all 8 standard moods
+            standard_moods = ['happy', 'sad', 'energetic', 'calm', 'angry', 'romantic', 'melancholic', 'upbeat']
+            for mood in standard_moods:
+                if mood not in mood_distribution:
+                    mood_distribution[mood] = 0.0
+            
+            # Normalize distribution to sum to 1.0
+            total_score = sum(mood_distribution.values())
+            if total_score > 0:
+                mood_distribution = {k: v/total_score for k, v in mood_distribution.items()}
+            else:
+                # Equal distribution if no scores
+                mood_distribution = {k: 1.0/len(standard_moods) for k in standard_moods}
+            
+            logger.info("Mood classification completed", 
+                       primary_mood=primary_mood, 
+                       confidence=confidence,
+                       tracks_analyzed=total_tracks)
             
             return {
-                "primary_mood": prediction,
-                "confidence": confidence,
-                "mood_distribution": mood_distribution
+                "primary_mood": primary_mood,
+                "confidence": float(confidence),
+                "mood_distribution": mood_distribution,
+                "tracks_analyzed": total_tracks,
+                "method": "genre-metadata-analysis"
             }
             
         except Exception as e:
-            logger.error("ML model classification failed", error=str(e))
-            # Fallback to rule-based
-            return self._classify_with_rules(features)
+            logger.error("Error in mood classification", error=str(e))
+            return self._create_default_result()
     
-    def _classify_with_rules(self, features: np.ndarray) -> Dict[str, Any]:
-        """Classify mood using rule-based approach"""
-        if features.size == 0:
-            return {"primary_mood": "unknown", "confidence": 0.0, "mood_distribution": {}}
+    def _analyze_track_mood(self, track_data: Dict[str, Any]) -> Dict[str, float]:
+        """Analyze mood of a single track using all available data"""
+        mood_scores = Counter()
         
-        valence, energy = features[0][0], features[0][1]
+        # 1. Genre-based analysis (primary method)
+        genres = track_data.get('genres', [])
+        if genres:
+            for genre in genres:
+                genre_lower = genre.lower()
+                if genre_lower in self.genre_mood_map:
+                    for mood, score in self.genre_mood_map[genre_lower].items():
+                        mood_scores[mood] += score * 0.7  # Weight: 70%
         
-        # Rule-based classification
-        if valence > 0.7 and energy > 0.7:
-            primary_mood = "happy"
-        elif valence > 0.6 and energy > 0.6:
-            primary_mood = "upbeat"
-        elif energy > 0.7:
-            primary_mood = "energetic"
-        elif valence < 0.4 and energy < 0.5:
-            primary_mood = "sad"
-        elif valence < 0.5 and energy > 0.6:
-            primary_mood = "angry"
-        elif valence > 0.5 and energy < 0.4:
-            primary_mood = "romantic"
-        elif energy < 0.4:
-            primary_mood = "calm"
-        else:
-            primary_mood = "melancholic"
+        # 2. Text analysis of track and artist names
+        track_name = track_data.get('name', '').lower()
+        artist_name = track_data.get('artist', '').lower()
+        album_name = track_data.get('album', '').lower()
         
-        # Create mock distribution with primary mood having high confidence
-        mood_distribution = {mood: 0.1 for mood in self.MOOD_CATEGORIES.keys()}
-        mood_distribution[primary_mood] = 0.8
+        text_content = f"{track_name} {artist_name} {album_name}"
         
+        for mood, keywords in self.mood_keywords.items():
+            for keyword in keywords:
+                if keyword in text_content:
+                    mood_scores[mood] += 0.3  # Weight: 30% per keyword match
+        
+        # 3. Metadata-based inference
+        duration_ms = track_data.get('duration_ms', 0)
+        popularity = track_data.get('popularity', 50)
+        explicit = track_data.get('explicit', False)
+        
+        # Duration analysis
+        if duration_ms > 0:
+            duration_minutes = duration_ms / 60000
+            if duration_minutes < 2.5:  # Very short tracks often energetic
+                mood_scores['energetic'] += 0.2
+                mood_scores['upbeat'] += 0.2
+            elif duration_minutes > 6:  # Long tracks often calm or melancholic
+                mood_scores['calm'] += 0.1
+                mood_scores['melancholic'] += 0.1
+        
+        # Popularity analysis
+        if popularity > 80:  # Very popular tracks often happy/upbeat
+            mood_scores['happy'] += 0.1
+            mood_scores['upbeat'] += 0.1
+        elif popularity < 30:  # Less popular tracks might be more melancholic/alternative
+            mood_scores['melancholic'] += 0.1
+        
+        # Explicit content analysis
+        if explicit:
+            mood_scores['angry'] += 0.1
+            mood_scores['energetic'] += 0.1
+        
+        return dict(mood_scores)
+    
+    def _create_default_result(self) -> Dict[str, Any]:
+        """Create default mood classification result"""
         return {
-            "primary_mood": primary_mood,
-            "confidence": 0.8,
-            "mood_distribution": mood_distribution
+            "primary_mood": "neutral",
+            "confidence": 0.5,
+            "mood_distribution": {
+                'happy': 0.125, 'sad': 0.125, 'energetic': 0.125, 'calm': 0.125,
+                'angry': 0.125, 'romantic': 0.125, 'melancholic': 0.125, 'upbeat': 0.125
+            },
+            "tracks_analyzed": 0,
+            "method": "default"
         }
     
-    def get_supported_moods(self) -> List[str]:
-        """Get list of supported mood categories"""
-        return list(self.MOOD_CATEGORIES.keys())
-    
-    def get_mood_descriptions(self) -> Dict[str, str]:
-        """Get descriptions for mood categories"""
-        return self.MOOD_DESCRIPTIONS.copy()
-    
     def get_model_version(self) -> str:
-        """Get model version"""
-        return self.model_version
-    
-    def __del__(self):
-        """Cleanup executor on deletion"""
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False) 
+        """Get current model version"""
+        return self.model_version 

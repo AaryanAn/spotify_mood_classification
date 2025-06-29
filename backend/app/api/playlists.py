@@ -51,16 +51,24 @@ async def get_user_playlists(
             await redis_client.close()
             return json.loads(cached_playlists)
         
-        # Get playlists from Spotify
+        # Get playlists from Spotify (returns list directly)
         spotify_service = SpotifyService(user.access_token)
-        playlists_data = await spotify_service.get_user_playlists(limit=limit, offset=offset)
+        playlists_list = await spotify_service.get_user_playlists(limit=limit, offset=offset)
+        
+        # Format response to match expected frontend structure
+        response_data = {
+            "items": playlists_list,
+            "total": len(playlists_list),
+            "limit": limit,
+            "offset": offset
+        }
         
         # Cache results for 5 minutes
-        await redis_client.setex(cache_key, 300, json.dumps(playlists_data))
+        await redis_client.setex(cache_key, 300, json.dumps(response_data))
         await redis_client.close()
         
-        logger.info("Retrieved user playlists", user_id=current_user_id, count=len(playlists_data["items"]))
-        return playlists_data
+        logger.info("Retrieved user playlists", user_id=current_user_id, count=len(playlists_list))
+        return response_data
         
     except HTTPException:
         raise
@@ -128,7 +136,7 @@ async def save_playlist_to_db(
     current_user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """Save playlist and its tracks to database for analysis"""
+    """Save playlist and its tracks to database for mood analysis"""
     logger.info("💾 [DEBUG] Starting playlist save", 
                 playlist_id=playlist_id, 
                 user_id=current_user_id)
@@ -161,12 +169,20 @@ async def save_playlist_to_db(
         
         logger.info("🔍 [DEBUG] Playlist not in database, fetching from Spotify")
         
-        # Save playlist data synchronously
+        # Save playlist data synchronously (ensure complete save before returning)
         spotify_service = SpotifyService(user.access_token)
         
         # Get playlist details
         logger.info("📡 [DEBUG] Fetching playlist details from Spotify")
         playlist_data = await spotify_service.get_playlist_details(playlist_id)
+        
+        if not playlist_data:
+            logger.error("❌ [DEBUG] Failed to fetch playlist details")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Playlist not found or access denied"
+            )
+        
         logger.info("✅ [DEBUG] Playlist details fetched", name=playlist_data.get("name"))
         
         # Save playlist
@@ -183,44 +199,47 @@ async def save_playlist_to_db(
         db.add(playlist)
         logger.info("💾 [DEBUG] Playlist entity created", tracks_count=playlist.tracks_count)
         
-        # Get and save tracks with audio features
-        logger.info("📡 [DEBUG] Fetching tracks with audio features")
-        tracks_data = await spotify_service.get_playlist_tracks_with_features(playlist_id)
-        logger.info("✅ [DEBUG] Tracks fetched", count=len(tracks_data))
+        # Get and save tracks with metadata (genres, artist info, etc.)
+        logger.info("📡 [DEBUG] Fetching tracks with metadata")
+        tracks_data = await spotify_service.get_playlist_tracks_with_metadata(playlist_id)
+        logger.info("✅ [DEBUG] Tracks with metadata fetched", count=len(tracks_data))
         
         saved_tracks = 0
-        for idx, track_item in enumerate(tracks_data):
-            if not track_item["track"] or track_item["track"]["id"] is None:
+        for idx, track_data in enumerate(tracks_data):
+            if not track_data.get("id"):
                 logger.warning("⚠️ [DEBUG] Skipping invalid track", position=idx)
                 continue
             
-            track_data = track_item["track"]
-            audio_features = track_item.get("audio_features", {})
-            
-            # Save track
+            # Save track with metadata (no audio features)
             track = Track(
                 id=track_data["id"],
                 name=track_data["name"],
-                artist=", ".join([artist["name"] for artist in track_data["artists"]]),
-                album=track_data["album"]["name"],
+                artist=track_data["artist"],
+                album=track_data["album"],
                 duration_ms=track_data["duration_ms"],
                 popularity=track_data.get("popularity"),
                 explicit=track_data.get("explicit", False),
-                spotify_url=track_data["external_urls"]["spotify"],
+                spotify_url=track_data.get("spotify_url"),
                 preview_url=track_data.get("preview_url"),
-                # Audio features
-                acousticness=audio_features.get("acousticness"),
-                danceability=audio_features.get("danceability"),
-                energy=audio_features.get("energy"),
-                instrumentalness=audio_features.get("instrumentalness"),
-                liveness=audio_features.get("liveness"),
-                loudness=audio_features.get("loudness"),
-                speechiness=audio_features.get("speechiness"),
-                tempo=audio_features.get("tempo"),
-                valence=audio_features.get("valence"),
-                key=audio_features.get("key"),
-                mode=audio_features.get("mode"),
-                time_signature=audio_features.get("time_signature"),
+                # Store genre and metadata information in JSON fields for mood analysis
+                genres=json.dumps(track_data.get("genres", [])),
+                artist_popularity=track_data.get("artist_popularity"),
+                artist_followers=track_data.get("artist_followers"),
+                release_year=track_data.get("release_year"),
+                release_date=track_data.get("release_date"),
+                # Set audio features to None since they're no longer available
+                acousticness=None,
+                danceability=None,
+                energy=None,
+                instrumentalness=None,
+                liveness=None,
+                loudness=None,
+                speechiness=None,
+                tempo=None,
+                valence=None,
+                key=None,
+                mode=None,
+                time_signature=None,
             )
             
             # Check if track already exists
@@ -231,6 +250,11 @@ async def save_playlist_to_db(
             
             if not existing_track:
                 db.add(track)
+                logger.debug("💾 [DEBUG] Added new track", 
+                           track_name=track_data["name"],
+                           genres=track_data.get("genres", []))
+            else:
+                logger.debug("✅ [DEBUG] Track already exists", track_name=track_data["name"])
             
             # Save playlist-track relationship
             playlist_track = PlaylistTrack(
@@ -251,7 +275,8 @@ async def save_playlist_to_db(
         return {
             "message": "Playlist saved successfully", 
             "playlist_id": playlist_id,
-            "tracks_saved": saved_tracks
+            "tracks_saved": saved_tracks,
+            "method": "genre-metadata-based"
         }
         
     except HTTPException as he:

@@ -121,9 +121,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
-@app.exception_handler(500)
-async def internal_server_error_handler(request: Request, exc: Exception):
-    """Global server error handler"""
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Global exception handler for all other exceptions"""
     logger.error("Internal server error", path=request.url.path, error=str(exc))
     from fastapi.responses import JSONResponse
     return JSONResponse(

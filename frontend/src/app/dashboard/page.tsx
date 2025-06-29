@@ -158,7 +158,7 @@ export default function Dashboard() {
 
       if (saveResponse.status === 401 || saveResponse.status === 403) {
         console.error('🚫 [DEBUG] Token expired during save')
-        alert('Your session has expired. Please log in again.')
+        alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
         handleLogout()
         return
       }
@@ -169,7 +169,16 @@ export default function Dashboard() {
           status: saveResponse.status,
           errorText: errorText
         })
-        throw new Error(`Failed to save playlist: ${saveResponse.status} - ${errorText}`)
+        
+        // Show specific error messages based on status code
+        if (saveResponse.status === 429) {
+          alert('Rate limit exceeded. Please wait a moment and try again.')
+        } else if (saveResponse.status >= 500) {
+          alert('Server error occurred. Please try again in a few moments.')
+        } else {
+          alert(`Failed to save playlist (${saveResponse.status}). Please check your connection and try again.`)
+        }
+        return
       }
 
       console.log('✅ [DEBUG] Playlist saved successfully')
@@ -201,7 +210,7 @@ export default function Dashboard() {
 
       if (response.status === 401 || response.status === 403) {
         console.error('🚫 [DEBUG] Token expired during analysis')
-        alert('Your session has expired. Please log in again.')
+        alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
         handleLogout()
         return
       }
@@ -212,7 +221,18 @@ export default function Dashboard() {
           status: response.status,
           errorText: errorText
         })
-        throw new Error(`Failed to analyze playlist: ${response.status} - ${errorText}`)
+        
+        // Show specific error messages based on status code
+        if (response.status === 404) {
+          alert('Playlist not found. Please try saving the playlist again.')
+        } else if (response.status === 429) {
+          alert('Rate limit exceeded. Please wait a moment and try again.')
+        } else if (response.status >= 500) {
+          alert('Server error occurred during analysis. Please try again in a few moments.')
+        } else {
+          alert(`Failed to analyze playlist (${response.status}). Please try again.`)
+        }
+        return
       }
 
       console.log('✅ [DEBUG] Analysis started successfully')
@@ -225,7 +245,7 @@ export default function Dashboard() {
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : 'No stack trace'
       })
-      alert('Failed to analyze playlist. Your session may have expired. Please try logging out and back in.')
+      alert('Failed to analyze playlist. This is often due to an expired Spotify session. Please log out and log back in to refresh your token.')
     } finally {
       setAnalyzingPlaylist(null)
     }
@@ -245,7 +265,7 @@ export default function Dashboard() {
         })
 
         if (response.status === 401 || response.status === 403) {
-          alert('Your session has expired. Please log in again.')
+          alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
           handleLogout()
           return false
         }
@@ -380,7 +400,7 @@ export default function Dashboard() {
                   </div>
                   <h5 className="font-semibold text-lg capitalize">{analysis.primary_mood}</h5>
                   <p className="text-sm text-gray-400">Primary Mood</p>
-                  <p className="text-xs text-gray-500">{Math.round(analysis.mood_confidence * 100)}% confidence</p>
+                  <p className="text-xs text-gray-500">{Math.round((analysis.mood_confidence || 0) * 100)}% confidence</p>
                 </div>
 
                 <div className="text-center">
@@ -415,11 +435,11 @@ export default function Dashboard() {
                         <div className="w-24 bg-gray-600 rounded-full h-2">
                           <div 
                             className="bg-spotify-green h-2 rounded-full" 
-                            style={{ width: `${percentage}%` }}
+                            style={{ width: `${Math.round(percentage * 100)}%` }}
                           ></div>
                         </div>
                         <span className="text-sm text-gray-400 w-12 text-right">
-                          {Math.round(percentage)}%
+                          {Math.round(percentage * 100)}%
                         </span>
                       </div>
                     </div>

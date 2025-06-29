@@ -67,7 +67,7 @@ class Playlist(Base):
 
 
 class Track(Base):
-    """Track model for storing track information and audio features"""
+    """Track model for storing track information and metadata for mood analysis"""
     __tablename__ = "tracks"
     
     id: Mapped[str] = mapped_column(String(50), primary_key=True)  # Spotify track ID
@@ -80,7 +80,14 @@ class Track(Base):
     spotify_url: Mapped[str] = mapped_column(String(200))
     preview_url: Mapped[Optional[str]] = mapped_column(String(500))
     
-    # Audio features from Spotify API
+    # Genre and metadata information for mood analysis
+    genres: Mapped[Optional[str]] = mapped_column(Text)  # JSON string of genre list
+    artist_popularity: Mapped[Optional[int]] = mapped_column(Integer)
+    artist_followers: Mapped[Optional[int]] = mapped_column(Integer)
+    release_year: Mapped[Optional[int]] = mapped_column(Integer)
+    release_date: Mapped[Optional[str]] = mapped_column(String(20))
+    
+    # Audio features from Spotify API (deprecated but kept for backward compatibility)
     acousticness: Mapped[Optional[float]] = mapped_column(Float)
     danceability: Mapped[Optional[float]] = mapped_column(Float)
     energy: Mapped[Optional[float]] = mapped_column(Float)
@@ -109,29 +116,34 @@ class PlaylistTrack(Base):
 
 
 class MoodAnalysis(Base):
-    """Model for storing mood analysis results"""
+    """Model for storing mood analysis results using genre-metadata approach"""
     __tablename__ = "mood_analyses"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)  # Custom ID format
     playlist_id: Mapped[str] = mapped_column(String(50))
     user_id: Mapped[str] = mapped_column(String(50))
     
     # Mood classification results
     primary_mood: Mapped[str] = mapped_column(String(50))
-    mood_confidence: Mapped[float] = mapped_column(Float)
-    mood_distribution: Mapped[Dict[str, Any]] = mapped_column(JSON)
+    confidence: Mapped[float] = mapped_column(Float)  # Renamed from mood_confidence
+    mood_distribution: Mapped[Optional[str]] = mapped_column(Text)  # JSON string
     
-    # Aggregated audio features
-    avg_valence: Mapped[float] = mapped_column(Float)
-    avg_energy: Mapped[float] = mapped_column(Float)
-    avg_danceability: Mapped[float] = mapped_column(Float)
-    avg_acousticness: Mapped[float] = mapped_column(Float)
-    avg_tempo: Mapped[float] = mapped_column(Float)
-    
-    # Metadata
+    # Analysis metadata
     tracks_analyzed: Mapped[int] = mapped_column(Integer)
-    model_version: Mapped[str] = mapped_column(String(20))
-    analysis_duration_ms: Mapped[int] = mapped_column(Integer)
+    analysis_method: Mapped[str] = mapped_column(String(50))  # e.g., "genre-metadata-analysis"
+    analysis_data: Mapped[Optional[str]] = mapped_column(Text)  # JSON string with analysis details
+    
+    # Deprecated audio features (kept for backward compatibility)
+    avg_valence: Mapped[Optional[float]] = mapped_column(Float)
+    avg_energy: Mapped[Optional[float]] = mapped_column(Float)
+    avg_danceability: Mapped[Optional[float]] = mapped_column(Float)
+    avg_acousticness: Mapped[Optional[float]] = mapped_column(Float)
+    avg_tempo: Mapped[Optional[float]] = mapped_column(Float)
+    
+    # Legacy fields (kept for backward compatibility)
+    mood_confidence: Mapped[Optional[float]] = mapped_column(Float)  # Deprecated, use 'confidence'
+    model_version: Mapped[Optional[str]] = mapped_column(String(20))
+    analysis_duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

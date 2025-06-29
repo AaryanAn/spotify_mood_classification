@@ -1,23 +1,22 @@
 """
-Mood analysis endpoints
+Mood Analysis API endpoints
+Updated to use genre and metadata-based classification instead of deprecated audio features
 """
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from typing import Dict, Any, List
 import structlog
-from datetime import datetime
-import redis.asyncio as aioredis
-import json
 
-from app.models.database import get_db, User, Playlist, Track, PlaylistTrack, MoodAnalysis
-from app.services.jwt_service import get_current_user_id
+from app.models.database import get_db, Playlist, MoodAnalysis
+from app.services.jwt_service import get_current_user
+from app.services.spotify_service import SpotifyService
 from app.services.mood_classifier import MoodClassifier
-from app.utils.config import get_settings
+import json
+from datetime import datetime
 
-router = APIRouter()
 logger = structlog.get_logger()
-settings = get_settings()
+router = APIRouter()
 
 # Initialize mood classifier
 mood_classifier = MoodClassifier()
@@ -26,326 +25,302 @@ mood_classifier = MoodClassifier()
 @router.post("/{playlist_id}/analyze")
 async def analyze_playlist_mood(
     playlist_id: str,
-    background_tasks: BackgroundTasks,
-    current_user_id: str = Depends(get_current_user_id),
+    current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
-):
-    """Analyze playlist mood"""
-    logger.info("🎵 [DEBUG] Starting mood analysis", 
-                playlist_id=playlist_id, 
-                user_id=current_user_id)
-    
+) -> Dict[str, Any]:
+    """
+    Analyze playlist mood using genre and metadata-based classification
+    """
     try:
-        # Check if user has access to this playlist
-        logger.info("🔍 [DEBUG] Checking playlist access")
+        logger.info("Starting playlist mood analysis", 
+                   playlist_id=playlist_id, 
+                   user_id=current_user["id"])
+        
+        # Check if playlist exists in database
         result = await db.execute(
             select(Playlist).where(
-                and_(Playlist.id == playlist_id, Playlist.user_id == current_user_id)
+                Playlist.id == playlist_id,
+                Playlist.user_id == current_user["id"]
             )
         )
         playlist = result.scalar_one_or_none()
         
-        logger.info("🔍 [DEBUG] Playlist access check result", 
-                    found=playlist is not None,
-                    playlist_name=playlist.name if playlist else None)
-        
         if not playlist:
-            logger.error("❌ [DEBUG] Playlist not found or access denied")
+            logger.warning("Playlist not found for mood analysis", 
+                          playlist_id=playlist_id, 
+                          user_id=current_user["id"])
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Playlist not found or access denied"
+                status_code=404, 
+                detail=f"Playlist not found or access denied. Make sure you've saved the playlist first."
             )
         
-        # Check if analysis already exists and is recent
-        logger.info("🔍 [DEBUG] Checking for existing analysis")
-        result = await db.execute(
-            select(MoodAnalysis).where(
-                and_(
-                    MoodAnalysis.playlist_id == playlist_id,
-                    MoodAnalysis.user_id == current_user_id
-                )
-            ).order_by(MoodAnalysis.created_at.desc())
-        )
-        existing_analysis = result.scalar_one_or_none()
+        # Initialize Spotify service
+        spotify_service = SpotifyService(current_user["access_token"])
         
-        if existing_analysis:
-            # Return existing analysis if less than 1 hour old
-            time_diff = datetime.utcnow() - existing_analysis.created_at
-            logger.info("🔍 [DEBUG] Found existing analysis", 
-                        age_seconds=time_diff.total_seconds(),
-                        is_recent=time_diff.total_seconds() < 3600)
-            
-            if time_diff.total_seconds() < 3600:  # 1 hour
-                logger.info("✅ [DEBUG] Returning cached analysis")
-                formatted_result = format_mood_analysis(existing_analysis)
-                logger.info("✅ [DEBUG] Formatted analysis result", 
-                           type=type(formatted_result),
-                           keys=list(formatted_result.keys()) if isinstance(formatted_result, dict) else "not_dict")
-                return formatted_result
-        
-        # Add background task to perform analysis
-        logger.info("🚀 [DEBUG] Starting background analysis task")
-        background_tasks.add_task(
-            analyze_playlist_mood_background,
-            playlist_id,
-            current_user_id
-        )
-        
-        success_response = {"message": "Mood analysis started", "playlist_id": playlist_id}
-        logger.info("✅ [DEBUG] Analysis task started successfully", 
-                   response=success_response,
-                   response_type=type(success_response))
-        return success_response
-        
-    except HTTPException as he:
-        logger.error("❌ [DEBUG] HTTP Exception in mood analysis", 
-                    status_code=he.status_code,
-                    detail=he.detail)
-        raise
-    except Exception as e:
-        logger.error("❌ [DEBUG] Unexpected error in mood analysis", 
-                    error=str(e), 
-                    error_type=type(e).__name__,
-                    playlist_id=playlist_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start mood analysis: {str(e)}"
-        )
-
-
-async def analyze_playlist_mood_background(playlist_id: str, user_id: str):
-    """Background task to analyze playlist mood"""
-    start_time = datetime.utcnow()
-    
-    from app.models.database import async_session_maker
-    try:
-        # Create new database session for background task
-        async with async_session_maker() as db:
-            # Get playlist tracks with audio features
-            result = await db.execute(
-                select(Track, PlaylistTrack)
-                .join(PlaylistTrack, Track.id == PlaylistTrack.track_id)
-                .where(PlaylistTrack.playlist_id == playlist_id)
-                .order_by(PlaylistTrack.position)
-            )
-            
-            tracks_data = []
-            for track, playlist_track in result.all():
-                if all([
-                    track.valence is not None,
-                    track.energy is not None,
-                    track.danceability is not None,
-                    track.acousticness is not None,
-                    track.tempo is not None
-                ]):
-                    tracks_data.append({
-                        "valence": track.valence,
-                        "energy": track.energy,
-                        "danceability": track.danceability,
-                        "acousticness": track.acousticness,
-                        "tempo": track.tempo,
-                        "loudness": track.loudness,
-                        "speechiness": track.speechiness,
-                        "instrumentalness": track.instrumentalness,
-                        "liveness": track.liveness,
-                    })
-            
-            if not tracks_data:
-                logger.error("No tracks with audio features found", playlist_id=playlist_id)
-                return
-            
-            # Perform mood classification
-            mood_result = await mood_classifier.classify_playlist_mood(tracks_data)
-            
-            # Calculate aggregated features
-            avg_features = calculate_average_features(tracks_data)
-            
-            # Save analysis results
-            analysis = MoodAnalysis(
-                playlist_id=playlist_id,
-                user_id=user_id,
-                primary_mood=mood_result["primary_mood"],
-                mood_confidence=mood_result["confidence"],
-                mood_distribution=mood_result["mood_distribution"],
-                avg_valence=avg_features["valence"],
-                avg_energy=avg_features["energy"],
-                avg_danceability=avg_features["danceability"],
-                avg_acousticness=avg_features["acousticness"],
-                avg_tempo=avg_features["tempo"],
-                tracks_analyzed=len(tracks_data),
-                model_version=mood_classifier.get_model_version(),
-                analysis_duration_ms=int((datetime.utcnow() - start_time).total_seconds() * 1000),
-            )
-            
-            db.add(analysis)
-            await db.commit()
-            
-            # Update playlist analyzed timestamp
-            await db.execute(
-                select(Playlist).where(Playlist.id == playlist_id)
-            )
-            playlist = result.scalar_one_or_none()
-            if playlist:
-                playlist.analyzed_at = datetime.utcnow()
-                await db.commit()
-            
-            # Cache results
-            redis_client = aioredis.from_url(settings.redis_url)
-            cache_key = f"mood_analysis:{playlist_id}:{user_id}"
-            await redis_client.setex(
-                cache_key, 
-                3600,  # 1 hour
-                json.dumps(format_mood_analysis(analysis))
-            )
-            await redis_client.close()
-            
-            logger.info("Mood analysis completed", playlist_id=playlist_id, user_id=user_id, 
-                       primary_mood=mood_result["primary_mood"], confidence=mood_result["confidence"])
-            
-    except Exception as e:
-        logger.error("Failed to analyze playlist mood", error=str(e), playlist_id=playlist_id)
-
-
-@router.get("/{playlist_id}/analysis")
-async def get_playlist_mood_analysis(
-    playlist_id: str,
-    current_user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get playlist mood analysis results"""
-    try:
-        # Check cache first
-        redis_client = aioredis.from_url(settings.redis_url)
-        cache_key = f"mood_analysis:{playlist_id}:{current_user_id}"
-        cached_analysis = await redis_client.get(cache_key)
-        
-        if cached_analysis:
-            await redis_client.close()
-            return json.loads(cached_analysis)
-        
-        # Get from database
-        result = await db.execute(
-            select(MoodAnalysis).where(
-                and_(
-                    MoodAnalysis.playlist_id == playlist_id,
-                    MoodAnalysis.user_id == current_user_id
-                )
-            ).order_by(MoodAnalysis.created_at.desc())
-        )
-        analysis = result.scalar_one_or_none()
-        
-        if not analysis:
+        # Check if token is valid
+        if not spotify_service.is_token_valid():
+            logger.error("Invalid Spotify token for mood analysis", user_id=current_user["id"])
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Mood analysis not found. Please run analysis first."
+                status_code=401,
+                detail="Spotify token expired. Please log out and log back in."
             )
         
-        formatted_analysis = format_mood_analysis(analysis)
+        # Get tracks with comprehensive metadata (genres, artist info, etc.)
+        logger.info("Fetching tracks with metadata for mood analysis", playlist_id=playlist_id)
+        tracks_data = await spotify_service.get_playlist_tracks_with_metadata(playlist_id)
         
-        # Cache results
-        await redis_client.setex(cache_key, 3600, json.dumps(formatted_analysis))
-        await redis_client.close()
+        if not tracks_data:
+            logger.warning("No tracks found for mood analysis", playlist_id=playlist_id)
+            raise HTTPException(
+                status_code=404,
+                detail="No tracks found in playlist or unable to fetch track data"
+            )
         
-        return formatted_analysis
+        logger.info("Fetched tracks for analysis", 
+                   playlist_id=playlist_id,
+                   track_count=len(tracks_data))
+        
+        # Analyze mood using genre and metadata
+        logger.info("Performing mood classification", 
+                   playlist_id=playlist_id,
+                   tracks_count=len(tracks_data))
+        
+        mood_result = await mood_classifier.classify_playlist_mood(tracks_data)
+        
+        logger.info("Mood analysis completed", 
+                   playlist_id=playlist_id,
+                   primary_mood=mood_result.get("primary_mood"),
+                   confidence=mood_result.get("confidence"))
+        
+        # Save mood analysis to database
+        mood_analysis = MoodAnalysis(
+            id=f"{playlist_id}_{current_user['id']}_{int(datetime.utcnow().timestamp())}",
+            playlist_id=playlist_id,
+            user_id=current_user["id"],
+            primary_mood=mood_result["primary_mood"],
+            confidence=mood_result["confidence"],
+            mood_distribution=json.dumps(mood_result["mood_distribution"]),
+            tracks_analyzed=mood_result.get("tracks_analyzed", len(tracks_data)),
+            analysis_method=mood_result.get("method", "genre-metadata-analysis"),
+            analysis_data=json.dumps({
+                "model_version": mood_classifier.get_model_version(),
+                "total_tracks": len(tracks_data),
+                "tracks_with_genres": len([t for t in tracks_data if t.get('genres')]),
+                "unique_genres": len(set([g for t in tracks_data for g in t.get('genres', [])])),
+                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10]
+            })
+        )
+        
+        db.add(mood_analysis)
+        await db.commit()
+        
+        logger.info("Mood analysis saved to database", 
+                   playlist_id=playlist_id,
+                   analysis_id=mood_analysis.id)
+        
+        # Prepare response with enhanced track analysis data
+        response = {
+            "playlist_id": playlist_id,
+            "primary_mood": mood_result["primary_mood"],
+            "confidence": mood_result["confidence"],
+            "mood_distribution": mood_result["mood_distribution"],
+            "analysis_summary": {
+                "total_tracks": len(tracks_data),
+                "tracks_analyzed": mood_result.get("tracks_analyzed", len(tracks_data)),
+                "analysis_method": mood_result.get("method", "genre-metadata-analysis"),
+                "model_version": mood_classifier.get_model_version(),
+                "tracks_with_genres": len([t for t in tracks_data if t.get('genres')]),
+                "unique_genres_count": len(set([g for t in tracks_data for g in t.get('genres', [])])),
+                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10]
+            },
+            "track_details": [
+                {
+                    "name": track["name"],
+                    "artist": track["artist"],
+                    "genres": track.get("genres", []),
+                    "popularity": track.get("popularity", 0),
+                    "duration_ms": track.get("duration_ms", 0),
+                    "explicit": track.get("explicit", False),
+                    "release_year": track.get("release_year")
+                }
+                for track in tracks_data[:10]  # First 10 tracks for UI display
+            ],
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        return response
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to get mood analysis", error=str(e), playlist_id=playlist_id)
+        logger.error("Failed to analyze playlist mood", 
+                    playlist_id=playlist_id,
+                    user_id=current_user.get("id"),
+                    error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
+            detail=f"Failed to analyze playlist mood: {str(e)}"
+        )
+
+
+@router.get("/{playlist_id}/analysis")
+async def get_playlist_analysis(
+    playlist_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get the latest mood analysis for a playlist"""
+    try:
+        result = await db.execute(
+            select(MoodAnalysis)
+            .where(
+                MoodAnalysis.playlist_id == playlist_id,
+                MoodAnalysis.user_id == current_user["id"]
+            )
+            .order_by(MoodAnalysis.created_at.desc())
+            .limit(1)
+        )
+        
+        analysis = result.scalar_one_or_none()
+        
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail="No mood analysis found for this playlist"
+            )
+        
+        return {
+            "playlist_id": analysis.playlist_id,
+            "primary_mood": analysis.primary_mood,
+            "mood_confidence": analysis.confidence,  # Frontend expects this name
+            "mood_distribution": json.loads(analysis.mood_distribution) if analysis.mood_distribution else {},
+            "tracks_analyzed": analysis.tracks_analyzed,
+            "created_at": analysis.created_at.isoformat() if analysis.created_at else None,
+            "analysis_method": analysis.analysis_method,
+            # Add legacy fields for frontend compatibility
+            "avg_valence": 0.5,  # Placeholder values
+            "avg_energy": 0.5,
+            "avg_danceability": 0.5,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get playlist analysis", 
+                    playlist_id=playlist_id,
+                    error=str(e))
+        raise HTTPException(
+            status_code=500,
             detail="Failed to retrieve mood analysis"
         )
 
 
-@router.get("/history")
+@router.get("/{playlist_id}/history")
 async def get_mood_analysis_history(
-    limit: int = 10,
-    offset: int = 0,
-    current_user_id: str = Depends(get_current_user_id),
+    playlist_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
-):
-    """Get user's mood analysis history"""
+) -> List[Dict[str, Any]]:
+    """Get mood analysis history for a playlist"""
     try:
         result = await db.execute(
-            select(MoodAnalysis, Playlist)
-            .join(Playlist, MoodAnalysis.playlist_id == Playlist.id)
-            .where(MoodAnalysis.user_id == current_user_id)
+            select(MoodAnalysis)
+            .where(
+                MoodAnalysis.playlist_id == playlist_id,
+                MoodAnalysis.user_id == current_user["id"]
+            )
             .order_by(MoodAnalysis.created_at.desc())
-            .limit(limit)
-            .offset(offset)
         )
         
-        history = []
-        for analysis, playlist in result.all():
-            history.append({
-                "playlist_id": playlist.id,
-                "playlist_name": playlist.name,
-                "playlist_image": playlist.image_url,
-                "primary_mood": analysis.primary_mood,
-                "mood_confidence": analysis.mood_confidence,
-                "tracks_analyzed": analysis.tracks_analyzed,
-                "analyzed_at": analysis.created_at.isoformat(),
-                "analysis_duration_ms": analysis.analysis_duration_ms,
-            })
+        analyses = result.scalars().all()
         
-        return {
-            "history": history,
-            "total": len(history),
-            "limit": limit,
-            "offset": offset
-        }
+        return [
+            {
+                "id": analysis.id,
+                "primary_mood": analysis.primary_mood,
+                "confidence": analysis.confidence,
+                "mood_distribution": json.loads(analysis.mood_distribution) if analysis.mood_distribution else {},
+                "tracks_analyzed": analysis.tracks_analyzed,
+                "analysis_method": analysis.analysis_method,
+                "created_at": analysis.created_at.isoformat() if analysis.created_at else None
+            }
+            for analysis in analyses
+        ]
         
     except Exception as e:
-        logger.error("Failed to get mood analysis history", error=str(e), user_id=current_user_id)
+        logger.error("Failed to get mood analysis history", 
+                    playlist_id=playlist_id,
+                    error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail="Failed to retrieve mood analysis history"
         )
 
 
-@router.get("/moods")
-async def get_supported_moods():
-    """Get list of supported mood categories"""
-    return {
-        "moods": mood_classifier.get_supported_moods(),
-        "descriptions": mood_classifier.get_mood_descriptions()
-    }
-
-
-def calculate_average_features(tracks_data: List[Dict[str, Any]]) -> Dict[str, float]:
-    """Calculate average audio features for tracks"""
-    if not tracks_data:
-        return {}
-    
-    features = ["valence", "energy", "danceability", "acousticness", "tempo"]
-    averages = {}
-    
-    for feature in features:
-        values = [track[feature] for track in tracks_data if track.get(feature) is not None]
-        averages[feature] = sum(values) / len(values) if values else 0.0
-    
-    return averages
-
-
-def format_mood_analysis(analysis: MoodAnalysis) -> Dict[str, Any]:
-    """Format mood analysis for API response"""
-    return {
-        "playlist_id": analysis.playlist_id,
-        "primary_mood": analysis.primary_mood,
-        "mood_confidence": analysis.mood_confidence,
-        "mood_distribution": analysis.mood_distribution,
-        "audio_features": {
-            "avg_valence": analysis.avg_valence,
-            "avg_energy": analysis.avg_energy,
-            "avg_danceability": analysis.avg_danceability,
-            "avg_acousticness": analysis.avg_acousticness,
-            "avg_tempo": analysis.avg_tempo,
-        },
-        "metadata": {
-            "tracks_analyzed": analysis.tracks_analyzed,
-            "model_version": analysis.model_version,
-            "analysis_duration_ms": analysis.analysis_duration_ms,
-            "analyzed_at": analysis.created_at.isoformat(),
+@router.get("/{playlist_id}/stats")
+async def get_mood_stats(
+    playlist_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get aggregated mood statistics for a playlist"""
+    try:
+        result = await db.execute(
+            select(MoodAnalysis)
+            .where(
+                MoodAnalysis.playlist_id == playlist_id,
+                MoodAnalysis.user_id == current_user["id"]
+            )
+            .order_by(MoodAnalysis.created_at.desc())
+        )
+        
+        analyses = result.scalars().all()
+        
+        if not analyses:
+            raise HTTPException(
+                status_code=404,
+                detail="No mood analysis found for this playlist"
+            )
+        
+        # Get latest analysis
+        latest = analyses[0]
+        
+        # Calculate trends if multiple analyses exist
+        mood_trend = None
+        if len(analyses) > 1:
+            previous = analyses[1]
+            if latest.primary_mood == previous.primary_mood:
+                mood_trend = "stable"
+            else:
+                mood_trend = f"changed from {previous.primary_mood} to {latest.primary_mood}"
+        
+        return {
+            "playlist_id": playlist_id,
+            "latest_analysis": {
+                "primary_mood": latest.primary_mood,
+                "confidence": latest.confidence,
+                "analysis_method": latest.analysis_method,
+                "created_at": latest.created_at.isoformat() if latest.created_at else None
+            },
+            "total_analyses": len(analyses),
+            "mood_trend": mood_trend,
+            "analysis_history": [
+                {
+                    "mood": analysis.primary_mood,
+                    "confidence": analysis.confidence,
+                    "date": analysis.created_at.isoformat() if analysis.created_at else None
+                }
+                for analysis in analyses[:5]  # Last 5 analyses
+            ]
         }
-    } 
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get mood stats", 
+                    playlist_id=playlist_id,
+                    error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve mood statistics"
+        ) 

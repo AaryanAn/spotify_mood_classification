@@ -1,13 +1,12 @@
 """
-Spotify API service wrapper
+Spotify API service for fetching user data, playlists, and track metadata
+Updated to use genres and metadata instead of deprecated audio features API
 """
-import spotipy
-from spotipy.exceptions import SpotifyException
-from typing import List, Dict, Any, Optional
-import structlog
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-import time
+import spotipy
+from typing import Optional, Dict, List, Any
+import structlog
+from spotipy.exceptions import SpotifyException
 
 logger = structlog.get_logger()
 
@@ -16,173 +15,207 @@ class SpotifyService:
     """Service for interacting with Spotify Web API"""
     
     def __init__(self, access_token: str):
-        self.sp = spotipy.Spotify(auth=access_token)
-        self.executor = ThreadPoolExecutor(max_workers=5)
+        self.access_token = access_token
+        self.client = spotipy.Spotify(auth=access_token)
     
-    async def get_user_playlists(self, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
+    async def get_current_user(self) -> Optional[Dict[str, Any]]:
+        """Get current user profile"""
+        try:
+            loop = asyncio.get_event_loop()
+            user = await loop.run_in_executor(None, self.client.current_user)
+            return user
+        except SpotifyException as e:
+            logger.error("Failed to get current user", error=str(e))
+            return None
+    
+    async def get_user_playlists(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """Get user's playlists"""
         try:
             loop = asyncio.get_event_loop()
-            playlists = await loop.run_in_executor(
-                self.executor,
-                lambda: self.sp.current_user_playlists(limit=limit, offset=offset)
+            result = await loop.run_in_executor(
+                None, 
+                lambda: self.client.current_user_playlists(limit=limit, offset=offset)
             )
-            return playlists
+            return result.get('items', [])
         except SpotifyException as e:
-            logger.error("Spotify API error getting playlists", error=str(e))
-            raise
+            logger.error("Failed to get user playlists", error=str(e))
+            return []
     
-    async def get_playlist_details(self, playlist_id: str) -> Dict[str, Any]:
+    async def get_playlist_details(self, playlist_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed playlist information"""
         try:
             loop = asyncio.get_event_loop()
             playlist = await loop.run_in_executor(
-                self.executor,
-                lambda: self.sp.playlist(playlist_id)
+                None,
+                lambda: self.client.playlist(playlist_id)
             )
             return playlist
         except SpotifyException as e:
-            logger.error("Spotify API error getting playlist details", error=str(e), playlist_id=playlist_id)
-            raise
+            logger.error("Failed to get playlist details", playlist_id=playlist_id, error=str(e))
+            return None
     
-    async def get_playlist_tracks(self, playlist_id: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get all tracks from a playlist"""
+    async def get_playlist_tracks_with_metadata(self, playlist_id: str) -> List[Dict[str, Any]]:
+        """
+        Get playlist tracks with comprehensive metadata for mood analysis
+        
+        Returns list of tracks with:
+        - Basic track info (name, duration, popularity, explicit)
+        - Artist info with genres
+        - Album info with release date
+        """
         try:
-            tracks = []
-            offset = 0
+            logger.info("Fetching playlist tracks with metadata", playlist_id=playlist_id)
             
-            while True:
-                loop = asyncio.get_event_loop()
-                results = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.sp.playlist_tracks(
-                        playlist_id, 
-                        limit=min(limit, 100), 
-                        offset=offset
-                    )
-                )
-                
-                tracks.extend(results["items"])
-                
-                if len(results["items"]) < 100 or len(tracks) >= limit:
-                    break
-                
-                offset += 100
-                # Rate limiting - Spotify allows 100 requests per minute
-                await asyncio.sleep(0.1)
+            # Get basic playlist tracks
+            loop = asyncio.get_event_loop()
+            tracks_response = await loop.run_in_executor(
+                None,
+                lambda: self.client.playlist_tracks(playlist_id)
+            )
             
-            return tracks[:limit]
+            tracks = tracks_response.get('items', [])
+            if not tracks:
+                logger.warning("No tracks found in playlist", playlist_id=playlist_id)
+                return []
+            
+            # Extract track metadata with genre information
+            enriched_tracks = []
+            
+            for item in tracks:
+                track = item.get('track')
+                if not track or track.get('type') != 'track':
+                    continue
+                
+                try:
+                    # Get primary artist info (with genres)
+                    primary_artist = track['artists'][0] if track['artists'] else None
+                    artist_genres = []
+                    artist_name = "Unknown Artist"
+                    artist_popularity = 0
+                    artist_followers = 0
+                    
+                    if primary_artist:
+                        artist_name = primary_artist.get('name', 'Unknown Artist')
+                        
+                        # Get detailed artist info (including genres)
+                        artist_details = await loop.run_in_executor(
+                            None,
+                            lambda: self.client.artist(primary_artist['id'])
+                        )
+                        
+                        if artist_details:
+                            artist_genres = artist_details.get('genres', [])
+                            artist_popularity = artist_details.get('popularity', 0)
+                            artist_followers = artist_details.get('followers', {}).get('total', 0)
+                    
+                    # Get album info
+                    album = track.get('album', {})
+                    album_name = album.get('name', 'Unknown Album')
+                    release_date = album.get('release_date', '')
+                    
+                    # Calculate release year for decade analysis
+                    release_year = None
+                    if release_date:
+                        try:
+                            release_year = int(release_date.split('-')[0])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    # Create enriched track data
+                    track_data = {
+                        # Basic track info
+                        'id': track.get('id'),
+                        'name': track.get('name', 'Unknown Track'),
+                        'duration_ms': track.get('duration_ms', 0),
+                        'popularity': track.get('popularity', 0),
+                        'explicit': track.get('explicit', False),
+                        'preview_url': track.get('preview_url'),
+                        
+                        # Artist info with genres (key for mood analysis)
+                        'artist': artist_name,
+                        'artist_id': primary_artist.get('id') if primary_artist else None,
+                        'genres': artist_genres,  # Most important for mood classification
+                        'artist_popularity': artist_popularity,
+                        'artist_followers': artist_followers,
+                        
+                        # Album info
+                        'album': album_name,
+                        'album_id': album.get('id'),
+                        'release_date': release_date,
+                        'release_year': release_year,
+                        
+                        # Additional metadata for analysis
+                        'track_number': track.get('track_number'),
+                        'disc_number': track.get('disc_number'),
+                        'is_local': track.get('is_local', False),
+                        
+                        # Spotify URLs
+                        'spotify_url': track.get('external_urls', {}).get('spotify'),
+                        'uri': track.get('uri'),
+                        
+                        # All artists (for collaborations)
+                        'all_artists': [a.get('name') for a in track.get('artists', [])],
+                    }
+                    
+                    enriched_tracks.append(track_data)
+                    logger.debug("Enriched track data", 
+                               track_name=track_data['name'],
+                               artist=track_data['artist'],
+                               genres=track_data['genres'])
+                    
+                except Exception as e:
+                    logger.warning("Failed to enrich track data", 
+                                 track_id=track.get('id'), 
+                                 error=str(e))
+                    continue
+            
+            logger.info("Successfully fetched playlist tracks with metadata", 
+                       playlist_id=playlist_id,
+                       total_tracks=len(enriched_tracks))
+            
+            return enriched_tracks
             
         except SpotifyException as e:
-            logger.error("Spotify API error getting playlist tracks", error=str(e), playlist_id=playlist_id)
-            raise
+            logger.error("Failed to get playlist tracks with metadata", 
+                        playlist_id=playlist_id, 
+                        error=str(e))
+            return []
+        except Exception as e:
+            logger.error("Unexpected error getting playlist tracks", 
+                        playlist_id=playlist_id, 
+                        error=str(e))
+            return []
     
-    async def get_audio_features(self, track_ids: List[str]) -> List[Dict[str, Any]]:
-        """Get audio features for multiple tracks"""
-        try:
-            # Spotify allows up to 100 track IDs per request
-            all_features = []
-            
-            for i in range(0, len(track_ids), 100):
-                batch_ids = track_ids[i:i+100]
-                
-                loop = asyncio.get_event_loop()
-                features = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.sp.audio_features(batch_ids)
-                )
-                
-                all_features.extend(features)
-                
-                # Rate limiting
-                if i + 100 < len(track_ids):
-                    await asyncio.sleep(0.1)
-            
-            return all_features
-            
-        except SpotifyException as e:
-            logger.error("Spotify API error getting audio features", error=str(e))
-            raise
-    
-    async def get_playlist_tracks_with_features(self, playlist_id: str) -> List[Dict[str, Any]]:
-        """Get playlist tracks with their audio features"""
-        try:
-            # Get all tracks
-            tracks = await self.get_playlist_tracks(playlist_id)
-            
-            # Extract track IDs (filter out None values)
-            track_ids = [
-                track["track"]["id"] 
-                for track in tracks 
-                if track["track"] and track["track"]["id"]
-            ]
-            
-            if not track_ids:
-                return tracks
-            
-            # Get audio features
-            audio_features = await self.get_audio_features(track_ids)
-            
-            # Create mapping of track ID to audio features
-            features_map = {
-                features["id"]: features 
-                for features in audio_features 
-                if features
-            }
-            
-            # Combine tracks with their audio features
-            for track in tracks:
-                if track["track"] and track["track"]["id"]:
-                    track_id = track["track"]["id"]
-                    track["audio_features"] = features_map.get(track_id, {})
-            
-            return tracks
-            
-        except SpotifyException as e:
-            logger.error("Spotify API error getting tracks with features", error=str(e), playlist_id=playlist_id)
-            raise
-    
-    async def search_tracks(self, query: str, limit: int = 20) -> Dict[str, Any]:
+    async def search_tracks(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Search for tracks"""
         try:
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(
-                self.executor,
-                lambda: self.sp.search(q=query, type="track", limit=limit)
+                None,
+                lambda: self.client.search(q=query, type='track', limit=limit)
             )
-            return results
+            return results.get('tracks', {}).get('items', [])
         except SpotifyException as e:
-            logger.error("Spotify API error searching tracks", error=str(e), query=query)
-            raise
+            logger.error("Failed to search tracks", query=query, error=str(e))
+            return []
     
-    async def get_track_details(self, track_id: str) -> Dict[str, Any]:
-        """Get detailed track information including audio features"""
+    async def get_artist_details(self, artist_id: str) -> Optional[Dict[str, Any]]:
+        """Get detailed artist information including genres"""
         try:
             loop = asyncio.get_event_loop()
-            
-            # Get track details and audio features concurrently
-            track_task = loop.run_in_executor(
-                self.executor,
-                lambda: self.sp.track(track_id)
+            artist = await loop.run_in_executor(
+                None,
+                lambda: self.client.artist(artist_id)
             )
-            
-            features_task = loop.run_in_executor(
-                self.executor,
-                lambda: self.sp.audio_features([track_id])[0]
-            )
-            
-            track, features = await asyncio.gather(track_task, features_task)
-            
-            return {
-                "track": track,
-                "audio_features": features
-            }
-            
+            return artist
         except SpotifyException as e:
-            logger.error("Spotify API error getting track details", error=str(e), track_id=track_id)
-            raise
+            logger.error("Failed to get artist details", artist_id=artist_id, error=str(e))
+            return None
     
-    def __del__(self):
-        """Cleanup executor on deletion"""
-        if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False) 
+    def is_token_valid(self) -> bool:
+        """Check if the access token is still valid"""
+        try:
+            self.client.current_user()
+            return True
+        except SpotifyException:
+            return False 

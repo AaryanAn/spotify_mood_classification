@@ -103,28 +103,49 @@ export const playlistApi = {
 
 // Mood analysis APIs
 export const moodApi = {
-  analyzePlaylist: async (playlistId: string): Promise<{ message: string; playlist_id: string }> => {
-    const response = await api.post(`/api/mood/${playlistId}/analyze`);
+  analyzePlaylist: async (playlistId: string): Promise<any> => {
+    const response = await api.post(`/api/mood-analysis/analyze/${playlistId}`);
     return response.data;
   },
 
+  getAnalysisHistory: async (playlistId: string): Promise<any[]> => {
+    const response = await api.get(`/api/mood-analysis/history/${playlistId}`);
+    return response.data;
+  },
+
+  getPlaylistStats: async (playlistId: string): Promise<any> => {
+    const response = await api.get(`/api/mood-analysis/stats/${playlistId}`);
+    return response.data;
+  },
+
+  // Deprecated endpoints (keeping for backward compatibility)
   getPlaylistAnalysis: async (playlistId: string): Promise<MoodAnalysis> => {
     const response: AxiosResponse<MoodAnalysis> = await api.get(
-      `/api/mood/${playlistId}/analysis`
+      `/api/mood-analysis/history/${playlistId}`
     );
-    return response.data;
-  },
-
-  getAnalysisHistory: async (limit = 10, offset = 0): Promise<MoodAnalysisHistoryResponse> => {
-    const response: AxiosResponse<MoodAnalysisHistoryResponse> = await api.get(
-      `/api/mood/history?limit=${limit}&offset=${offset}`
-    );
-    return response.data;
+    // Return the latest analysis from history
+    const history = response.data as any[];
+    if (history.length > 0) {
+      return history[0] as MoodAnalysis;
+    }
+    throw new Error('No mood analysis found for this playlist');
   },
 
   getSupportedMoods: async (): Promise<{ moods: string[]; descriptions: { [key: string]: string } }> => {
-    const response = await api.get('/api/mood/moods');
-    return response.data;
+    // Return static mood categories since we're using genre-metadata approach
+    return {
+      moods: ['happy', 'sad', 'energetic', 'calm', 'angry', 'romantic', 'melancholic', 'upbeat'],
+      descriptions: {
+        'happy': 'Joyful and positive music that lifts your spirits',
+        'sad': 'Melancholic music that touches deep emotions',
+        'energetic': 'High-energy music perfect for workouts or motivation',
+        'calm': 'Peaceful and relaxing music for unwinding',
+        'angry': 'Intense and aggressive music expressing frustration',
+        'romantic': 'Tender and loving music for intimate moments',
+        'melancholic': 'Bittersweet music with a touch of nostalgia',
+        'upbeat': 'Cheerful and lively music that makes you want to dance'
+      }
+    };
   },
 };
 
