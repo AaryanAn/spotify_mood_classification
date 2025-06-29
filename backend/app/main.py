@@ -59,7 +59,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(playlists.router, prefix="/api/playlists", tags=["playlists"])
-app.include_router(mood_analysis.router, prefix="/api/mood", tags=["mood-analysis"])
+app.include_router(mood_analysis.router, prefix="/api/mood-analysis", tags=["mood-analysis"])
 
 
 @app.get("/")
