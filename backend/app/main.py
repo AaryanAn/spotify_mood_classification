@@ -111,17 +111,25 @@ async def root():
 
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
+async def http_exception_handler(request: Request, exc: HTTPException):
     """Global HTTP exception handler"""
     logger.error("HTTP exception occurred", path=request.url.path, status_code=exc.status_code, detail=exc.detail)
-    return {"error": exc.detail, "status_code": exc.status_code}
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.detail, "status_code": exc.status_code}
+    )
 
 
 @app.exception_handler(500)
-async def internal_server_error_handler(request, exc):
+async def internal_server_error_handler(request: Request, exc: Exception):
     """Global server error handler"""
     logger.error("Internal server error", path=request.url.path, error=str(exc))
-    return {"error": "Internal server error", "status_code": 500}
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "status_code": 500}
+    )
 
 
 if __name__ == "__main__":
