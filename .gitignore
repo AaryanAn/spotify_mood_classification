@@ -1,0 +1,113 @@
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Markdown files (except README.md)
+*.md
+!README.md
+
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.pip-cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.cover
+.hypothesis/
+.coverage
+.coverage.*
+.cache
+.nyc_output/
+htmlcov/
+
+# pytest
+.pytest_cache/
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# ML Models and Data
+*.pkl
+*.joblib
+*.h5
+*.model
+ml/data/raw/
+ml/data/processed/
+ml/models/trained/
+ml/experiments/
+
+# Build outputs
+dist/
+build/
+*.tar.gz
+*.whl
+
+# Next.js
+.next/
+out/
+
+# Docker
+.dockerignore
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Redis
+dump.rdb
+
+# Application specific
+uploads/
+downloads/
+cache/ 

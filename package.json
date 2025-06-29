@@ -1,0 +1,15 @@
+{
+  "name": "spotify-mood-classifier",
+  "version": "1.0.0",
+  "description": "AI-powered playlist mood analysis",
+  "scripts": {
+    "start": "docker compose up -d",
+    "stop": "docker compose down", 
+    "restart": "docker compose restart",
+    "logs": "docker compose logs -f",
+    "status": "docker compose ps",
+    "build": "docker compose build"
+  },
+  "author": "Aaryan Anand",
+  "license": "MIT"
+} 
