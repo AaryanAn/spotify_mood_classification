@@ -7,6 +7,8 @@ services:
     buildCommand: "pip install -r backend/requirements.txt"
     startCommand: "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: SPOTIFY_CLIENT_ID
         value: 9b3ef90111ac4a9797a5b9c14443e202
       - key: SPOTIFY_CLIENT_SECRET
