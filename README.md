@@ -53,7 +53,7 @@ This application combines ML expertise with modern web development to create an 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/spotify-mood-classification.git
+git clone https://github.com/AaryanAn/spotify_mood_classification.git
 cd spotify-mood-classification
 ```
 
@@ -246,4 +246,4 @@ If you encounter any issues or have questions:
 
 ---
 
-**Built with ❤️ for music lovers and data enthusiasts** 
+**Built with ❤️ for music lovers and data enthusiasts**
