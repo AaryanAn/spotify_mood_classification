@@ -12,6 +12,7 @@ from app.models.database import get_db, Playlist, MoodAnalysis
 from app.services.jwt_service import get_current_user
 from app.services.spotify_service import SpotifyService
 from app.services.mood_classifier import MoodClassifier
+from app.services.enhanced_mood_classifier import EnhancedMoodClassifier
 import json
 from datetime import datetime
 
@@ -19,12 +20,13 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 # Initialize mood classifier
-mood_classifier = MoodClassifier()
+# mood_classifier will be instantiated based on use_lyrics parameter
 
 
 @router.post("/{playlist_id}/analyze")
 async def analyze_playlist_mood(
     playlist_id: str,
+    use_lyrics: bool = False,
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -80,12 +82,18 @@ async def analyze_playlist_mood(
                    playlist_id=playlist_id,
                    track_count=len(tracks_data))
         
-        # Analyze mood using genre and metadata
+        # Analyze mood using genre and metadata (and optionally lyrics)
         logger.info("Performing mood classification", 
                    playlist_id=playlist_id,
-                   tracks_count=len(tracks_data))
+                   tracks_count=len(tracks_data),
+                   use_lyrics=use_lyrics)
         
-        mood_result = await mood_classifier.classify_playlist_mood(tracks_data)
+        if use_lyrics:
+            mood_classifier = EnhancedMoodClassifier()
+            mood_result = await mood_classifier.classify_playlist_mood_with_lyrics(tracks_data)
+        else:
+            mood_classifier = MoodClassifier()
+            mood_result = await mood_classifier.classify_playlist_mood(tracks_data)
         
         logger.info("Mood analysis completed", 
                    playlist_id=playlist_id,
@@ -107,7 +115,10 @@ async def analyze_playlist_mood(
                 "total_tracks": len(tracks_data),
                 "tracks_with_genres": len([t for t in tracks_data if t.get('genres')]),
                 "unique_genres": len(set([g for t in tracks_data for g in t.get('genres', [])])),
-                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10]
+                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10],
+                "use_lyrics": use_lyrics,
+                "lyrics_coverage": mood_result.get("lyrics_coverage", 0.0),
+                "analysis_components": mood_result.get("analysis_components", {})
             })
         )
         
@@ -131,7 +142,10 @@ async def analyze_playlist_mood(
                 "model_version": mood_classifier.get_model_version(),
                 "tracks_with_genres": len([t for t in tracks_data if t.get('genres')]),
                 "unique_genres_count": len(set([g for t in tracks_data for g in t.get('genres', [])])),
-                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10]
+                "sample_genres": list(set([g for t in tracks_data for g in t.get('genres', [])]))[:10],
+                "use_lyrics": use_lyrics,
+                "lyrics_coverage": mood_result.get("lyrics_coverage", 0.0),
+                "analysis_components": mood_result.get("analysis_components", {})
             },
             "track_details": [
                 {

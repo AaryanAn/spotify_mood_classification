@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     batch_size: int = 32
     learning_rate: float = 0.001
     
+    # Genius API Configuration
+    genius_access_token: str = ""
+    
     # Monitoring & Logging
     log_level: str = "INFO"
     enable_metrics: bool = True
