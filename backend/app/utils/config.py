@@ -32,7 +32,12 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     api_workers: int = 1
-    cors_origins: List[str] = ["http://127.0.0.1:8080"]
+    cors_origins: List[str] = [
+        "http://127.0.0.1:8080",
+        "http://localhost:8080", 
+        "http://127.0.0.1:3000",
+        "http://localhost:3000"
+    ]
     
     # ML Configuration
     model_path: str = "./ml/models/"
