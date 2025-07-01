@@ -13,14 +13,24 @@ from app.utils.config import get_settings
 logger = structlog.get_logger()
 settings = get_settings()
 
-# Create async engine
+# Create async engine with connection URL parameter for statement cache
+database_url = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
+# Add statement_cache_size=0 as URL parameter for pgbouncer compatibility
+if "?" in database_url:
+    database_url += "&statement_cache_size=0"
+else:
+    database_url += "?statement_cache_size=0"
+
 engine = create_async_engine(
-    settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
+    database_url,
     echo=settings.debug,
     pool_pre_ping=True,
     pool_recycle=300,
-    # Disable prepared statements for pgbouncer/transaction pooler compatibility
-    connect_args={"statement_cache_size": 0},
+    # Additional connect args for pgbouncer compatibility
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    },
 )
 
 # Create session factory
