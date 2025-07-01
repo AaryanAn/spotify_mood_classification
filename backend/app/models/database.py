@@ -21,8 +21,11 @@ async def get_asyncpg_pool():
     """Get or create the global asyncpg connection pool"""
     global _asyncpg_pool
     if _asyncpg_pool is None:
+        # Ensure we use clean postgresql:// format for asyncpg (not postgresql+asyncpg://)
+        clean_database_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        
         _asyncpg_pool = await asyncpg.create_pool(
-            settings.database_url,
+            clean_database_url,
             statement_cache_size=0,  # Critical: disable prepared statements for pgbouncer
             min_size=1,
             max_size=20,
