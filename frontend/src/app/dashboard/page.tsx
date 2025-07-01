@@ -473,7 +473,7 @@ export default function Dashboard() {
                       {Math.round((Date.now() - new Date(analysis.created_at).getTime()) / 1000 / 60)} minutes ago
                     </span>
                   </div>
-                  {analysis.analysis_data && typeof analysis.analysis_data === 'object' && (
+                  {(analysis as any).analysis_data && typeof (analysis as any).analysis_data === 'object' && (
                     <div className="flex items-center gap-3 mt-3">
                       {(analysis.analysis_data as any).use_lyrics ? (
                         <span className="bg-gradient-to-r from-spotify-green to-spotify-green-light text-black px-3 py-1 rounded-full text-xs font-bold">
@@ -586,7 +586,7 @@ export default function Dashboard() {
             </div>
 
             {/* Analysis Breakdown */}
-            {analysis.analysis_data && typeof analysis.analysis_data === 'object' && (
+            {(analysis as any).analysis_data && typeof (analysis as any).analysis_data === 'object' && (
               <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* Method Breakdown */}
                 <div className="bg-gradient-to-br from-blue-500/20 to-blue-500/10 rounded-2xl p-6 border border-blue-500/20">
