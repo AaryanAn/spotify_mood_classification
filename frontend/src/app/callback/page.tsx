@@ -34,7 +34,8 @@ export default function CallbackPage() {
 
         // Send code and state to backend as query parameters
         const params = new URLSearchParams({ code, state })
-        const response = await fetch(`http://localhost:8000/api/auth/callback?${params}`, {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        const response = await fetch(`${API_URL}/api/auth/callback?${params}`, {
           method: 'POST',
         })
 
@@ -44,7 +45,7 @@ export default function CallbackPage() {
             const errorData = await response.json()
             if (errorData.detail) {
               errorMessage = Array.isArray(errorData.detail) 
-                ? errorData.detail.map(err => err.msg || err).join(', ')
+                ? errorData.detail.map((err: any) => err.msg || err).join(', ')
                 : errorData.detail
             }
           } catch (e) {
