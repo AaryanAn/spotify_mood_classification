@@ -5,6 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  NEXT_PUBLIC_API_URL = "https://spotify-mood-classification.onrender.com"
 
 [[redirects]]
   from = "/*"
