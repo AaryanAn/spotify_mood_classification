@@ -194,17 +194,36 @@ async def get_db() -> AsyncSession:
 async def init_db():
     """Initialize database tables using asyncpg pool to avoid prepared statements issue"""
     try:
-        # First, test the connection using our asyncpg pool
+        # Use our working asyncpg pool for everything
         pool = await get_asyncpg_pool()
         async with pool.acquire() as conn:
             # Test the connection with a simple query
-            await conn.fetchval("SELECT version()")
-            logger.info("✅ Database connection test successful")
-        
-        # Now use SQLAlchemy engine for table creation
-        # This should work now that we've established the pool
-        async with engine.begin() as sqlalchemy_conn:
-            await sqlalchemy_conn.run_sync(Base.metadata.create_all)
+            version = await conn.fetchval("SELECT version()")
+            logger.info("✅ Database connection test successful", version=version[:50])
+            
+            # Create tables using raw SQL through our working asyncpg pool
+            # This completely bypasses SQLAlchemy's prepared statements issue
+            
+            # Generate DDL SQL from SQLAlchemy metadata
+            from sqlalchemy.schema import CreateTable
+            from sqlalchemy.dialects import postgresql
+            
+            # Create tables one by one using raw SQL
+            for table in Base.metadata.tables.values():
+                # Check if table exists first
+                table_exists = await conn.fetchval(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)",
+                    table.name
+                )
+                
+                if not table_exists:
+                    create_sql = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+                    await conn.execute(create_sql)
+                    logger.info(f"✅ Created table: {table.name}")
+                else:
+                    logger.info(f"⏭️ Table already exists: {table.name}")
+            
+            logger.info("✅ Database tables created successfully")
         
         logger.info("✅ Database initialized successfully")
         
