@@ -8,11 +8,11 @@ services:
     startCommand: "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: SPOTIFY_CLIENT_ID
-        value: 9b3ef90111ac4a9797a5b9c14443e202
+        sync: false  # Set in Render dashboard
       - key: SPOTIFY_CLIENT_SECRET
-        value: 962da8a54b7d48b09a775b156c2f9e30
+        sync: false  # Set in Render dashboard
       - key: GENIUS_ACCESS_TOKEN
-        value: mrWS-HJtMGOPkVNLCjVNrNvu5bo1kUGPd9jxdIJHqtqgJPgflUId4s8b7PRbWUMN
+        sync: false  # Set in Render dashboard
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
@@ -20,7 +20,7 @@ services:
           name: spotify-mood-db
           property: connectionString
       - key: REDIS_URL
-        value: # Add your Upstash Redis URL here
+        sync: false  # Set in Render dashboard
 
 databases:
   - name: spotify-mood-db
