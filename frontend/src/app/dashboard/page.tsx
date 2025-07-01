@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { MoodAnalysis } from '@/types'
 
 interface User {
   id: string
@@ -32,17 +33,7 @@ interface Playlist {
   }
 }
 
-interface MoodAnalysis {
-  playlist_id: string
-  primary_mood: string
-  mood_confidence: number
-  mood_distribution: Record<string, number>
-  avg_valence: number
-  avg_energy: number
-  avg_danceability: number
-  tracks_analyzed: number
-  created_at: string
-}
+
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
@@ -467,10 +458,10 @@ export default function Dashboard() {
                 <div className="flex-1">
                   <h4 className="text-2xl font-bold text-white mb-2">{selectedPlaylist.name}</h4>
                   <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-300">{analysis.tracks_analyzed} tracks analyzed</span>
+                    <span className="text-gray-300">{analysis.metadata.tracks_analyzed} tracks analyzed</span>
                     <span className="text-gray-500">•</span>
                     <span className="text-gray-300">
-                      {Math.round((Date.now() - new Date(analysis.created_at).getTime()) / 1000 / 60)} minutes ago
+                      {Math.round((Date.now() - new Date(analysis.metadata.analyzed_at).getTime()) / 1000 / 60)} minutes ago
                     </span>
                   </div>
                   {(analysis as any).analysis_data && typeof (analysis as any).analysis_data === 'object' && (
@@ -521,15 +512,15 @@ export default function Dashboard() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">💫 Positivity</span>
-                      <span className="font-bold text-yellow-400">{Math.round(analysis.avg_valence * 100)}%</span>
+                      <span className="font-bold text-yellow-400">{Math.round(analysis.audio_features.avg_valence * 100)}%</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">⚡ Energy</span>
-                      <span className="font-bold text-red-400">{Math.round(analysis.avg_energy * 100)}%</span>
+                      <span className="font-bold text-red-400">{Math.round(analysis.audio_features.avg_energy * 100)}%</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">💃 Danceability</span>
-                      <span className="font-bold text-purple-400">{Math.round(analysis.avg_danceability * 100)}%</span>
+                      <span className="font-bold text-purple-400">{Math.round(analysis.audio_features.avg_danceability * 100)}%</span>
                     </div>
                   </div>
                 </div>
@@ -615,7 +606,7 @@ export default function Dashboard() {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-300">Lyrics Found</span>
                           <span className="font-semibold text-purple-300">
-                            {(analysis.analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.tracks_analyzed}
+                            {(analysis.analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.metadata.tracks_analyzed}
                           </span>
                         </div>
                       </>
@@ -640,7 +631,7 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Tracks with Genres</span>
                       <span className="font-semibold text-purple-300">
-                        {(analysis.analysis_data as any).tracks_with_genres || 0} / {analysis.tracks_analyzed}
+                        {(analysis.analysis_data as any).tracks_with_genres || 0} / {analysis.metadata.tracks_analyzed}
                       </span>
                     </div>
                     
