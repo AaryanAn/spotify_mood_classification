@@ -466,7 +466,7 @@ export default function Dashboard() {
                   </div>
                   {(analysis as any).analysis_data && typeof (analysis as any).analysis_data === 'object' && (
                     <div className="flex items-center gap-3 mt-3">
-                      {(analysis.analysis_data as any).use_lyrics ? (
+                      {((analysis as any).analysis_data as any).use_lyrics ? (
                         <span className="bg-gradient-to-r from-spotify-green to-spotify-green-light text-black px-3 py-1 rounded-full text-xs font-bold">
                           🎵 Enhanced with Lyrics
                         </span>
@@ -475,9 +475,9 @@ export default function Dashboard() {
                           📊 Standard Analysis
                         </span>
                       )}
-                      {(analysis.analysis_data as any).lyrics_coverage && (analysis.analysis_data as any).lyrics_coverage > 0 && (
+                      {((analysis as any).analysis_data as any).lyrics_coverage && ((analysis as any).analysis_data as any).lyrics_coverage > 0 && (
                         <span className="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-xs font-medium">
-                          {Math.round((analysis.analysis_data as any).lyrics_coverage * 100)}% lyrics coverage
+                          {Math.round(((analysis as any).analysis_data as any).lyrics_coverage * 100)}% lyrics coverage
                         </span>
                       )}
                       <span className="bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full text-xs font-medium">
@@ -589,11 +589,11 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Method Used</span>
                       <span className="font-semibold text-blue-300">
-                        {(analysis.analysis_data as any).use_lyrics ? 'Enhanced (Lyrics + Metadata)' : 'Standard (Metadata Only)'}
+                        {((analysis as any).analysis_data as any).use_lyrics ? 'Enhanced (Lyrics + Metadata)' : 'Standard (Metadata Only)'}
                       </span>
                     </div>
                     
-                    {(analysis.analysis_data as any).use_lyrics && (
+                    {((analysis as any).analysis_data as any).use_lyrics && (
                       <>
                         <div className="flex justify-between items-center">
                           <span className="text-gray-300">Genre & Metadata Weight</span>
@@ -606,7 +606,7 @@ export default function Dashboard() {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-300">Lyrics Found</span>
                           <span className="font-semibold text-purple-300">
-                            {(analysis.analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.metadata.tracks_analyzed}
+                            {((analysis as any).analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.metadata.tracks_analyzed}
                           </span>
                         </div>
                       </>
@@ -615,7 +615,7 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Processing Time</span>
                       <span className="font-semibold text-orange-300">
-                        {(analysis.analysis_data as any).use_lyrics ? '~8 seconds' : '~2 seconds'}
+                        {((analysis as any).analysis_data as any).use_lyrics ? '~8 seconds' : '~2 seconds'}
                       </span>
                     </div>
                   </div>
@@ -631,22 +631,22 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Tracks with Genres</span>
                       <span className="font-semibold text-purple-300">
-                        {(analysis.analysis_data as any).tracks_with_genres || 0} / {analysis.metadata.tracks_analyzed}
+                        {((analysis as any).analysis_data as any).tracks_with_genres || 0} / {analysis.metadata.tracks_analyzed}
                       </span>
                     </div>
                     
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Unique Genres</span>
                       <span className="font-semibold text-purple-300">
-                        {(analysis.analysis_data as any).unique_genres || 0}
+                        {((analysis as any).analysis_data as any).unique_genres || 0}
                       </span>
                     </div>
                     
-                    {(analysis.analysis_data as any).sample_genres && (
+                    {((analysis as any).analysis_data as any).sample_genres && (
                       <div>
                         <span className="text-gray-300 block mb-2">Top Genres</span>
                         <div className="flex flex-wrap gap-2">
-                          {(analysis.analysis_data as any).sample_genres.slice(0, 3).map((genre: string, index: number) => (
+                          {((analysis as any).analysis_data as any).sample_genres.slice(0, 3).map((genre: string, index: number) => (
                             <span key={index} className="bg-purple-500/30 text-purple-200 px-3 py-1 rounded-full text-xs font-medium">
                               {genre}
                             </span>
