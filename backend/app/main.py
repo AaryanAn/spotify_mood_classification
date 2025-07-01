@@ -11,7 +11,7 @@ import os
 import time
 
 from app.api import auth, playlists, mood_analysis, health
-from app.models.database import init_db
+from app.models.database import init_db, close_asyncpg_pool
 from app.utils.config import get_settings
 from app.utils.logging_config import setup_logging
 
@@ -38,6 +38,8 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     logger.info("👋 Shutting down Spotify Mood Classifier API")
+    await close_asyncpg_pool()
+    logger.info("🗄️ Database connections closed")
 
 
 app = FastAPI(

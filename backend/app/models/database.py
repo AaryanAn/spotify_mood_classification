@@ -14,29 +14,35 @@ from app.utils.config import get_settings
 logger = structlog.get_logger()
 settings = get_settings()
 
-# Custom connection factory to ensure statement cache is disabled
-async def get_asyncpg_connection():
-    """Create asyncpg connection with statement cache disabled for pgbouncer compatibility"""
-    import urllib.parse
-    
-    # Parse the DATABASE_URL
-    parsed = urllib.parse.urlparse(settings.database_url)
-    
-    return await asyncpg.connect(
-        host=parsed.hostname,
-        port=parsed.port,
-        user=parsed.username,
-        password=parsed.password,
-        database=parsed.path.lstrip('/'),
-        statement_cache_size=0,  # Critical: disable prepared statements
-        prepared_statement_cache_size=0,
-        server_settings={
-            "application_name": "spotify_mood_classifier",
-            "jit": "off",
-        }
-    )
+# Create asyncpg pool directly to bypass pgbouncer prepared statement issues
+_asyncpg_pool = None
 
-# Create async engine with asyncpg but force disable prepared statements
+async def get_asyncpg_pool():
+    """Get or create the global asyncpg connection pool"""
+    global _asyncpg_pool
+    if _asyncpg_pool is None:
+        _asyncpg_pool = await asyncpg.create_pool(
+            settings.database_url,
+            statement_cache_size=0,  # Critical: disable prepared statements for pgbouncer
+            min_size=1,
+            max_size=20,
+            command_timeout=60,
+            server_settings={
+                'jit': 'off',
+                'application_name': 'spotify_mood_classifier'
+            }
+        )
+    return _asyncpg_pool
+
+async def close_asyncpg_pool():
+    """Close the asyncpg connection pool"""
+    global _asyncpg_pool
+    if _asyncpg_pool:
+        await _asyncpg_pool.close()
+        _asyncpg_pool = None
+
+# Create simple async engine for SQLAlchemy operations
+# We'll use the asyncpg pool for database initialization to avoid prepared statements issue
 database_url = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
 
 engine = create_async_engine(
@@ -44,28 +50,7 @@ engine = create_async_engine(
     echo=settings.debug,
     pool_pre_ping=True,
     pool_recycle=300,
-    # Force disable prepared statements completely for pgbouncer compatibility
-    connect_args={
-        "statement_cache_size": 0,
-        "prepared_statement_cache_size": 0,
-        "server_settings": {
-            "application_name": "spotify_mood_classifier",
-            "jit": "off",
-        }
-    },
-    # Disable SQLAlchemy's own statement caching
-    pool_reset_on_return="commit",
 )
-
-# Add event listener to ensure prepared statements are disabled on every connection
-@event.listens_for(engine.sync_engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    """Ensure prepared statements are disabled at connection level"""
-    if hasattr(dbapi_connection, '_connection'):
-        # This is an asyncpg connection wrapped by SQLAlchemy
-        raw_connection = dbapi_connection._connection
-        if hasattr(raw_connection, '_statement_cache_size'):
-            raw_connection._statement_cache_size = 0
 
 # Create session factory
 async_session_maker = async_sessionmaker(
@@ -204,7 +189,22 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Initialize database tables"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database initialized") 
+    """Initialize database tables using asyncpg pool to avoid prepared statements issue"""
+    try:
+        # First, test the connection using our asyncpg pool
+        pool = await get_asyncpg_pool()
+        async with pool.acquire() as conn:
+            # Test the connection with a simple query
+            await conn.fetchval("SELECT version()")
+            logger.info("✅ Database connection test successful")
+        
+        # Now use SQLAlchemy engine for table creation
+        # This should work now that we've established the pool
+        async with engine.begin() as sqlalchemy_conn:
+            await sqlalchemy_conn.run_sync(Base.metadata.create_all)
+        
+        logger.info("✅ Database initialized successfully")
+        
+    except Exception as e:
+        logger.error("❌ Database initialization failed", error=str(e))
+        raise 
