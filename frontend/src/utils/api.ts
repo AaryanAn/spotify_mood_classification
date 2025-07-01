@@ -124,7 +124,7 @@ export const moodApi = {
       `/api/mood-analysis/history/${playlistId}`
     );
     // Return the latest analysis from history
-    const history = response.data as any[];
+    const history = response.data as unknown as any[];
     if (history.length > 0) {
       return history[0] as MoodAnalysis;
     }
