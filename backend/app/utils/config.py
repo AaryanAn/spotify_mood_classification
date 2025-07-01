@@ -36,7 +36,11 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8080",
         "http://localhost:8080", 
         "http://127.0.0.1:3000",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "https://localhost:3000",
+        # Production URLs
+        "https://spotify-mood-classifier.netlify.app",
+        "https://spotify-mood-classification.onrender.com"
     ]
     
     # ML Configuration

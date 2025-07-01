@@ -54,7 +54,12 @@ app = FastAPI(
 # Security middleware
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app"] if settings.debug else ["yourdomain.com"],
+    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app"] if settings.debug else [
+        "spotify-mood-classification.onrender.com",
+        "*.onrender.com",  # Allow all Render domains
+        "spotify-mood-classifier.netlify.app",  # Allow the frontend
+        "*.netlify.app"  # Allow all Netlify domains
+    ],
 )
 
 # Debug logging middleware
