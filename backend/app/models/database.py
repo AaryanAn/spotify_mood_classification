@@ -3,35 +3,69 @@ Database configuration and base models
 """
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import DateTime, String, Text, Float, Boolean, Integer, JSON
+from sqlalchemy import DateTime, String, Text, Float, Boolean, Integer, JSON, event
 from datetime import datetime
 from typing import Optional, Any, Dict
 import structlog
+import asyncpg
 
 from app.utils.config import get_settings
 
 logger = structlog.get_logger()
 settings = get_settings()
 
-# Create async engine with connection URL parameter for statement cache
+# Custom connection factory to ensure statement cache is disabled
+async def get_asyncpg_connection():
+    """Create asyncpg connection with statement cache disabled for pgbouncer compatibility"""
+    import urllib.parse
+    
+    # Parse the DATABASE_URL
+    parsed = urllib.parse.urlparse(settings.database_url)
+    
+    return await asyncpg.connect(
+        host=parsed.hostname,
+        port=parsed.port,
+        user=parsed.username,
+        password=parsed.password,
+        database=parsed.path.lstrip('/'),
+        statement_cache_size=0,  # Critical: disable prepared statements
+        prepared_statement_cache_size=0,
+        server_settings={
+            "application_name": "spotify_mood_classifier",
+            "jit": "off",
+        }
+    )
+
+# Create async engine with asyncpg but force disable prepared statements
 database_url = settings.database_url.replace("postgresql://", "postgresql+asyncpg://")
-# Add statement_cache_size=0 as URL parameter for pgbouncer compatibility
-if "?" in database_url:
-    database_url += "&statement_cache_size=0"
-else:
-    database_url += "?statement_cache_size=0"
 
 engine = create_async_engine(
     database_url,
     echo=settings.debug,
     pool_pre_ping=True,
     pool_recycle=300,
-    # Additional connect args for pgbouncer compatibility
+    # Force disable prepared statements completely for pgbouncer compatibility
     connect_args={
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
+        "server_settings": {
+            "application_name": "spotify_mood_classifier",
+            "jit": "off",
+        }
     },
+    # Disable SQLAlchemy's own statement caching
+    pool_reset_on_return="commit",
 )
+
+# Add event listener to ensure prepared statements are disabled on every connection
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """Ensure prepared statements are disabled at connection level"""
+    if hasattr(dbapi_connection, '_connection'):
+        # This is an asyncpg connection wrapped by SQLAlchemy
+        raw_connection = dbapi_connection._connection
+        if hasattr(raw_connection, '_statement_cache_size'):
+            raw_connection._statement_cache_size = 0
 
 # Create session factory
 async_session_maker = async_sessionmaker(
