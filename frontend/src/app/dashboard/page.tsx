@@ -461,10 +461,10 @@ export default function Dashboard() {
                 <div className="flex-1">
                   <h4 className="text-2xl font-bold text-white mb-2">{selectedPlaylist.name}</h4>
                   <div className="flex items-center gap-4 text-sm">
-                    <span className="text-gray-300">{analysis.metadata.tracks_analyzed} tracks analyzed</span>
+                    <span className="text-gray-300">{analysis.tracks_analyzed} tracks analyzed</span>
                     <span className="text-gray-500">•</span>
                     <span className="text-gray-300">
-                      {Math.round((Date.now() - new Date(analysis.metadata.analyzed_at).getTime()) / 1000 / 60)} minutes ago
+                      {Math.round((Date.now() - new Date(analysis.created_at).getTime()) / 1000 / 60)} minutes ago
                     </span>
                   </div>
                   {(analysis as any).analysis_data && typeof (analysis as any).analysis_data === 'object' && (
@@ -609,7 +609,7 @@ export default function Dashboard() {
                         <div className="flex justify-between items-center">
                           <span className="text-gray-300">Lyrics Found</span>
                           <span className="font-semibold text-purple-300">
-                            {((analysis as any).analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.metadata.tracks_analyzed}
+                            {((analysis as any).analysis_data as any).analysis_components?.lyrics_tracks || 0} / {analysis.tracks_analyzed}
                           </span>
                         </div>
                       </>
@@ -634,7 +634,7 @@ export default function Dashboard() {
                     <div className="flex justify-between items-center">
                       <span className="text-gray-300">Tracks with Genres</span>
                       <span className="font-semibold text-purple-300">
-                        {((analysis as any).analysis_data as any).tracks_with_genres || 0} / {analysis.metadata.tracks_analyzed}
+                        {((analysis as any).analysis_data as any).tracks_with_genres || 0} / {analysis.tracks_analyzed}
                       </span>
                     </div>
                     
