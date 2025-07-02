@@ -51,6 +51,9 @@ export default function Dashboard() {
   const [playlistsPerPage] = useState(12)
   const router = useRouter()
 
+  // Helper function to get API URL
+  const getApiUrl = () => process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+
   useEffect(() => {
     // Check if user is logged in
     const token = localStorage.getItem('spotify_access_token')
@@ -85,8 +88,7 @@ export default function Dashboard() {
     try {
       const token = localStorage.getItem('spotify_access_token')
       // Fetch ALL playlists (no limit)
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
-      const response = await fetch(`${API_URL}/api/playlists/`, {
+      const response = await fetch(`${getApiUrl()}/api/playlists/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -145,8 +147,7 @@ export default function Dashboard() {
       })
       
       // First, save the playlist to our database
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
-      const saveUrl = `${API_URL}/api/playlists/${playlist.id}/save`
+      const saveUrl = `${getApiUrl()}/api/playlists/${playlist.id}/save`
       console.log('💾 [DEBUG] Attempting to save playlist:', {
         url: saveUrl,
         method: 'POST',
@@ -198,8 +199,7 @@ export default function Dashboard() {
       console.log('✅ [DEBUG] Playlist saved successfully')
 
       // Then analyze the playlist  
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
-      const analyzeUrl = `${API_URL}/api/mood-analysis/${playlist.id}/analyze${useLyrics ? '?use_lyrics=true' : ''}`
+      const analyzeUrl = `${getApiUrl()}/api/mood-analysis/${playlist.id}/analyze${useLyrics ? '?use_lyrics=true' : ''}`
       console.log('🔍 [DEBUG] Attempting to analyze playlist:', {
         url: analyzeUrl,
         method: 'POST',
@@ -275,8 +275,7 @@ export default function Dashboard() {
     const poll = async () => {
               try {
           const token = localStorage.getItem('spotify_access_token')
-          const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
-      const response = await fetch(`${API_URL}/api/mood-analysis/${playlistId}/analysis`, {
+          const response = await fetch(`${getApiUrl()}/api/mood-analysis/${playlistId}/analysis`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
