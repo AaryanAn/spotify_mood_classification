@@ -34,7 +34,7 @@ export default function CallbackPage() {
 
         // Send code and state to backend as query parameters
         const params = new URLSearchParams({ code, state })
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
         const response = await fetch(`${API_URL}/api/auth/callback?${params}`, {
           method: 'POST',
         })
