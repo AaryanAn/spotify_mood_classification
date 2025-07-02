@@ -53,8 +53,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     // Check if user is logged in
-    const token = localStorage.getItem('access_token')
-    const userData = localStorage.getItem('user')
+    const token = localStorage.getItem('spotify_access_token')
+    const userData = localStorage.getItem('spotify_user')
 
     if (!token || !userData) {
       router.push('/')
@@ -72,8 +72,8 @@ export default function Dashboard() {
   }, [router])
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('user')
+    localStorage.removeItem('spotify_access_token')
+    localStorage.removeItem('spotify_user')
     router.push('/')
   }
 
@@ -83,9 +83,10 @@ export default function Dashboard() {
     setCurrentPage(1)
     
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('spotify_access_token')
       // Fetch ALL playlists (no limit)
-      const response = await fetch('http://localhost:8000/api/playlists/', {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+      const response = await fetch(`${API_URL}/api/playlists/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -136,7 +137,7 @@ export default function Dashboard() {
     setAnalysis(null)
 
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('spotify_access_token')
       console.log('🔑 [DEBUG] Token check:', {
         hasToken: !!token,
         tokenPrefix: token ? token.substring(0, 20) + '...' : 'null',
@@ -144,7 +145,8 @@ export default function Dashboard() {
       })
       
       // First, save the playlist to our database
-      const saveUrl = `http://localhost:8000/api/playlists/${playlist.id}/save`
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+      const saveUrl = `${API_URL}/api/playlists/${playlist.id}/save`
       console.log('💾 [DEBUG] Attempting to save playlist:', {
         url: saveUrl,
         method: 'POST',
@@ -196,7 +198,8 @@ export default function Dashboard() {
       console.log('✅ [DEBUG] Playlist saved successfully')
 
       // Then analyze the playlist  
-      const analyzeUrl = `http://localhost:8000/api/mood-analysis/${playlist.id}/analyze${useLyrics ? '?use_lyrics=true' : ''}`
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+      const analyzeUrl = `${API_URL}/api/mood-analysis/${playlist.id}/analyze${useLyrics ? '?use_lyrics=true' : ''}`
       console.log('🔍 [DEBUG] Attempting to analyze playlist:', {
         url: analyzeUrl,
         method: 'POST',
@@ -270,9 +273,10 @@ export default function Dashboard() {
     let attempts = 0
 
     const poll = async () => {
-      try {
-        const token = localStorage.getItem('access_token')
-        const response = await fetch(`http://localhost:8000/api/mood-analysis/${playlistId}/analysis`, {
+              try {
+          const token = localStorage.getItem('spotify_access_token')
+          const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+      const response = await fetch(`${API_URL}/api/mood-analysis/${playlistId}/analysis`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },
