@@ -30,14 +30,38 @@ export default function CallbackPage() {
           throw new Error('Missing authorization code or state')
         }
 
-        setMessage('Exchanging authorization code...')
+        setMessage('Waking up server and exchanging authorization code...')
+
+        // First ensure backend is awake (critical for authorization code timing)
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+        
+        try {
+          const healthController = new AbortController()
+          const healthTimeoutId = setTimeout(() => healthController.abort(), 45000) // 45s timeout
+          
+          await fetch(`${API_URL}/api/health`, {
+            signal: healthController.signal
+          })
+          clearTimeout(healthTimeoutId)
+          setMessage('Server ready! Exchanging authorization code...')
+        } catch (healthError) {
+          console.warn('Health check failed during callback, but continuing...', healthError)
+          setMessage('Exchanging authorization code (server may be starting up)...')
+        }
 
         // Send code and state to backend as query parameters
         const params = new URLSearchParams({ code, state })
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+        
+        // Use longer timeout for callback since it involves Spotify API calls
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+        
         const response = await fetch(`${API_URL}/api/auth/callback?${params}`, {
           method: 'POST',
+          signal: controller.signal,
         })
+        
+        clearTimeout(timeoutId)
 
         if (!response.ok) {
           let errorMessage = 'Authentication failed'
