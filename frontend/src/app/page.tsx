@@ -6,30 +6,57 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [status, setStatus] = useState('')
 
-  const warmUpBackend = async () => {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const getApiUrl = () => {
+    // Use the production URL by default, fallback to localhost for development
+    return process.env.NEXT_PUBLIC_API_URL || 'https://spotify-mood-classification.onrender.com'
+  }
+
+  const warmUpBackend = async (retries = 2) => {
+    const API_URL = getApiUrl()
+    console.log('Using API URL:', API_URL) // Debug log
+    
     setStatus('Waking up server (this may take 30+ seconds on first visit)...')
     
-    try {
-      // Try health check first to wake up the server with proper timeout
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout for cold starts
-      
-      const healthResponse = await fetch(`${API_URL}/api/health`, {
-        signal: controller.signal
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (healthResponse.ok) {
-        setStatus('Server ready! Connecting to Spotify...')
-        return true
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout for cold starts
+        
+        console.log(`Health check attempt ${attempt}/${retries}`)
+        const healthResponse = await fetch(`${API_URL}/api/health`, {
+          method: 'GET',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+        
+        clearTimeout(timeoutId)
+        
+        if (healthResponse.ok) {
+          const data = await healthResponse.json()
+          console.log('Health check successful:', data)
+          setStatus('Server ready! Connecting to Spotify...')
+          return true
+        } else {
+          console.warn(`Health check failed with status: ${healthResponse.status}`)
+          if (attempt < retries) {
+            setStatus(`Server warming up... Retrying (${attempt}/${retries})`)
+            await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5s before retry
+          }
+        }
+      } catch (error) {
+        console.warn(`Health check attempt ${attempt} failed:`, error)
+        if (attempt < retries) {
+          setStatus(`Server warming up... Retrying (${attempt}/${retries})`)
+          await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5s before retry
+        } else {
+          console.warn('All health check attempts failed, but continuing anyway')
+          setStatus('Server warming up... Attempting login...')
+        }
       }
-    } catch (error) {
-      console.warn('Health check failed, but continuing anyway:', error)
-      setStatus('Server warming up... Attempting login...')
     }
-    return true // Continue even if health check fails
+    return true // Continue even if all health checks fail
   }
 
   const handleSpotifyLogin = async () => {
@@ -40,7 +67,7 @@ export default function Home() {
       await warmUpBackend()
       
       // Call backend to get Spotify OAuth URL
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const API_URL = getApiUrl()
       setStatus('Getting authorization URL...')
       
       // Implement proper timeout for login request
