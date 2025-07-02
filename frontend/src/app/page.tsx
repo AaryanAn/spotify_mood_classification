@@ -43,9 +43,15 @@ export default function Home() {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
       setStatus('Getting authorization URL...')
       
+      // Implement proper timeout for login request
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+      
       const response = await fetch(`${API_URL}/api/auth/login`, {
-        timeout: 30000 // 30 second timeout
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
       
       if (!response.ok) {
         const errorText = await response.text()
@@ -66,7 +72,11 @@ export default function Home() {
     } catch (error) {
       console.error('Login failed:', error)
       setStatus('')
-      alert(`Failed to connect to Spotify: ${error.message}`)
+      if (error.name === 'AbortError') {
+        alert('Connection timed out. The server may be waking up - please try again in a moment.')
+      } else {
+        alert(`Failed to connect to Spotify: ${error.message}`)
+      }
     } finally {
       setIsLoading(false)
     }
