@@ -19,4 +19,4 @@ export default function RootLayout({
       <body className={inter.className}>{children}</body>
     </html>
   )
-} 
+} // Force Netlify redeploy Tue Jul  1 22:30:18 CDT 2025
