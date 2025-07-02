@@ -111,14 +111,22 @@ export interface MoodAnalysis {
   primary_mood: MoodType;
   mood_confidence: number;
   mood_distribution: MoodDistribution;
-  audio_features: {
+  tracks_analyzed: number;
+  created_at: string;
+  analysis_method: string;
+  // Legacy audio features (direct fields for backward compatibility)
+  avg_valence: number;
+  avg_energy: number;
+  avg_danceability: number;
+  // Optional nested structures for enhanced data
+  audio_features?: {
     avg_valence: number;
     avg_energy: number;
     avg_danceability: number;
-    avg_acousticness: number;
-    avg_tempo: number;
+    avg_acousticness?: number;
+    avg_tempo?: number;
   };
-  metadata: {
+  metadata?: {
     tracks_analyzed: number;
     model_version: string;
     analysis_duration_ms: number;

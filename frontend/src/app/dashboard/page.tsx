@@ -515,15 +515,15 @@ export default function Dashboard() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">💫 Positivity</span>
-                      <span className="font-bold text-yellow-400">{Math.round(analysis.audio_features.avg_valence * 100)}%</span>
+                      <span className="font-bold text-yellow-400">{Math.round((analysis.avg_valence || 0.5) * 100)}%</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">⚡ Energy</span>
-                      <span className="font-bold text-red-400">{Math.round(analysis.audio_features.avg_energy * 100)}%</span>
+                      <span className="font-bold text-red-400">{Math.round((analysis.avg_energy || 0.5) * 100)}%</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-white/5 rounded-xl">
                       <span className="text-gray-300">💃 Danceability</span>
-                      <span className="font-bold text-purple-400">{Math.round(analysis.audio_features.avg_danceability * 100)}%</span>
+                      <span className="font-bold text-purple-400">{Math.round((analysis.avg_danceability || 0.5) * 100)}%</span>
                     </div>
                   </div>
                 </div>
