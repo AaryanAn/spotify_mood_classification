@@ -72,10 +72,11 @@ export default function Home() {
     } catch (error) {
       console.error('Login failed:', error)
       setStatus('')
-      if (error.name === 'AbortError') {
+      if (error instanceof Error && error.name === 'AbortError') {
         alert('Connection timed out. The server may be waking up - please try again in a moment.')
       } else {
-        alert(`Failed to connect to Spotify: ${error.message}`)
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred'
+        alert(`Failed to connect to Spotify: ${errorMessage}`)
       }
     } finally {
       setIsLoading(false)
