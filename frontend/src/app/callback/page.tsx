@@ -57,8 +57,8 @@ export default function CallbackPage() {
         const data = await response.json()
         
         // Store the access token
-        localStorage.setItem('access_token', data.access_token)
-        localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('spotify_access_token', data.access_token)
+        localStorage.setItem('spotify_user', JSON.stringify(data.user))
 
         setStatus('success')
         setMessage(`Welcome, ${data.user.display_name}! Redirecting to dashboard...`)
