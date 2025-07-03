@@ -53,6 +53,8 @@ engine = create_async_engine(
     echo=settings.debug,
     pool_pre_ping=True,
     pool_recycle=300,
+    # Critical: disable prepared statements for pgbouncer compatibility
+    connect_args={"statement_cache_size": 0}
 )
 
 # Create session factory
