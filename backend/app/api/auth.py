@@ -62,10 +62,9 @@ async def login():
 @router.post("/callback")
 async def callback(
     code: str,
-    state: str,
-    db: AsyncSession = Depends(get_db)
+    state: str
 ):
-    """Handle Spotify OAuth callback"""
+    """Handle Spotify OAuth callback - BYPASSES SQLALCHEMY to avoid pgbouncer prepared statement issues"""
     try:
         # Verify state parameter
         redis_client = aioredis.from_url(settings.redis_url)
@@ -96,25 +95,25 @@ async def callback(
         sp = spotipy.Spotify(auth=token_info['access_token'])
         user_info = sp.current_user()
         
-        # Create or update user in database
-        user = await get_or_create_user(db, user_info, token_info)
+        # Create or update user in database using direct asyncpg (NO SQLALCHEMY)
+        user = await get_or_create_user_asyncpg(user_info, token_info)
         
         # Generate JWT token
         access_token = create_access_token(
-            data={"sub": user.id, "email": user.email}
+            data={"sub": user["id"], "email": user["email"]}
         )
         
-        logger.info("User authenticated successfully", user_id=user.id)
+        logger.info("User authenticated successfully", user_id=user["id"])
         
         return {
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
-                "id": user.id,
-                "display_name": user.display_name,
-                "email": user.email,
-                "country": user.country,
-                "followers": user.followers,
+                "id": user["id"],
+                "display_name": user["display_name"],
+                "email": user["email"],
+                "country": user["country"],
+                "followers": user["followers"],
             }
         }
     
@@ -126,6 +125,90 @@ async def callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Authentication failed"
         )
+
+
+async def get_or_create_user_asyncpg(
+    user_info: dict,
+    token_info: dict
+) -> dict:
+    """Get existing user or create new one using direct asyncpg (bypasses SQLAlchemy prepared statements)"""
+    from app.models.database import get_asyncpg_pool
+    
+    pool = await get_asyncpg_pool()
+    async with pool.acquire() as conn:
+        # Check if user exists
+        existing_user = await conn.fetchrow(
+            "SELECT * FROM users WHERE id = $1",
+            user_info['id']
+        )
+        
+        now = datetime.utcnow()
+        token_expires_at = now + timedelta(seconds=token_info['expires_in'])
+        
+        if existing_user:
+            # Update existing user
+            await conn.execute("""
+                UPDATE users SET 
+                    display_name = $2,
+                    email = $3,
+                    country = $4,
+                    followers = $5,
+                    spotify_url = $6,
+                    access_token = $7,
+                    refresh_token = $8,
+                    token_expires_at = $9,
+                    updated_at = $10
+                WHERE id = $1
+            """, 
+                user_info['id'],
+                user_info.get('display_name'),
+                user_info.get('email'),
+                user_info.get('country'),
+                user_info.get('followers', {}).get('total', 0),
+                user_info.get('external_urls', {}).get('spotify'),
+                token_info['access_token'],
+                token_info.get('refresh_token'),
+                token_expires_at,
+                now
+            )
+            
+            # Return updated user data
+            return {
+                "id": user_info['id'],
+                "display_name": user_info.get('display_name'),
+                "email": user_info.get('email'),
+                "country": user_info.get('country'),
+                "followers": user_info.get('followers', {}).get('total', 0),
+            }
+        else:
+            # Create new user
+            await conn.execute("""
+                INSERT INTO users (
+                    id, display_name, email, country, followers, spotify_url,
+                    access_token, refresh_token, token_expires_at, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            """,
+                user_info['id'],
+                user_info.get('display_name'),
+                user_info.get('email'),
+                user_info.get('country'),
+                user_info.get('followers', {}).get('total', 0),
+                user_info.get('external_urls', {}).get('spotify'),
+                token_info['access_token'],
+                token_info.get('refresh_token'),
+                token_expires_at,
+                now,
+                now
+            )
+            
+            # Return new user data
+            return {
+                "id": user_info['id'],
+                "display_name": user_info.get('display_name'),
+                "email": user_info.get('email'),
+                "country": user_info.get('country'),
+                "followers": user_info.get('followers', {}).get('total', 0),
+            }
 
 
 async def get_or_create_user(
