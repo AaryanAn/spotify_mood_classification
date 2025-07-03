@@ -54,7 +54,14 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_recycle=300,
     # Critical: disable prepared statements for pgbouncer compatibility
-    connect_args={"statement_cache_size": 0}
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+        "server_settings": {
+            "application_name": "spotify_mood_classifier",
+            "jit": "off"
+        }
+    }
 )
 
 # Create session factory
