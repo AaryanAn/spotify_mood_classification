@@ -18,9 +18,13 @@ export default function CallbackPage() {
       }
       isProcessing.current = true
       try {
-        const code = searchParams?.get('code')
-        const state = searchParams?.get('state')
-        const error = searchParams?.get('error')
+        if (!searchParams) {
+          throw new Error('No URL parameters found - please try logging in again')
+        }
+        
+        const code = searchParams.get('code')
+        const state = searchParams.get('state')
+        const error = searchParams.get('error')
 
         if (error) {
           throw new Error(`Spotify authorization failed: ${error}`)
