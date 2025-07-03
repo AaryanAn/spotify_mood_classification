@@ -135,8 +135,8 @@ async def analyze_playlist_mood(
             await conn.execute("""
                 INSERT INTO mood_analyses (
                     id, playlist_id, user_id, primary_mood, confidence, mood_distribution,
-                    tracks_analyzed, analysis_method, analysis_data, created_at, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    tracks_analyzed, analysis_method, analysis_data, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """,
                 analysis_id,
                 playlist_id,
@@ -156,7 +156,6 @@ async def analyze_playlist_mood(
                     "lyrics_coverage": mood_result.get("lyrics_coverage", 0.0),
                     "analysis_components": mood_result.get("analysis_components", {})
                 }),
-                datetime.utcnow(),
                 datetime.utcnow()
             )
             
