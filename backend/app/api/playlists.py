@@ -21,22 +21,40 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 
+async def get_user_asyncpg(user_id: str) -> Optional[dict]:
+    """Get user data using direct asyncpg (bypasses SQLAlchemy prepared statements)"""
+    from app.models.database import get_asyncpg_pool
+    
+    pool = await get_asyncpg_pool()
+    async with pool.acquire() as conn:
+        # Get user data using raw SQL
+        user_row = await conn.fetchrow(
+            "SELECT id, access_token, refresh_token, token_expires_at FROM users WHERE id = $1",
+            user_id
+        )
+        
+        if user_row:
+            return {
+                "id": user_row["id"],
+                "access_token": user_row["access_token"],
+                "refresh_token": user_row["refresh_token"],
+                "token_expires_at": user_row["token_expires_at"]
+            }
+        return None
+
+
 @router.get("/")
 async def get_user_playlists(
     limit: int = 10000,  # High default to fetch all playlists
     offset: int = 0,
-    current_user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db)
+    current_user_id: str = Depends(get_current_user_id)
 ):
-    """Get user's playlists from Spotify"""
+    """Get user's playlists from Spotify - BYPASSES SQLALCHEMY to avoid pgbouncer prepared statement issues"""
     try:
-        # Get user from database
-        result = await db.execute(
-            select(User).where(User.id == current_user_id)
-        )
-        user = result.scalar_one_or_none()
+        # Get user from database using direct asyncpg (NO SQLALCHEMY)
+        user_data = await get_user_asyncpg(current_user_id)
         
-        if not user or not user.access_token:
+        if not user_data or not user_data.get('access_token'):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not authenticated with Spotify"
@@ -52,7 +70,7 @@ async def get_user_playlists(
             return json.loads(cached_playlists)
         
         # Get playlists from Spotify (returns list directly)
-        spotify_service = SpotifyService(user.access_token)
+        spotify_service = SpotifyService(user_data['access_token'])
         playlists_list = await spotify_service.get_user_playlists(limit=limit, offset=offset)
         
         # Format response to match expected frontend structure
@@ -83,18 +101,14 @@ async def get_user_playlists(
 @router.get("/{playlist_id}")
 async def get_playlist_details(
     playlist_id: str,
-    current_user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db)
+    current_user_id: str = Depends(get_current_user_id)
 ):
-    """Get detailed playlist information"""
+    """Get detailed playlist information - BYPASSES SQLALCHEMY to avoid pgbouncer prepared statement issues"""
     try:
-        # Get user from database
-        result = await db.execute(
-            select(User).where(User.id == current_user_id)
-        )
-        user = result.scalar_one_or_none()
+        # Get user from database using direct asyncpg (NO SQLALCHEMY)
+        user_data = await get_user_asyncpg(current_user_id)
         
-        if not user or not user.access_token:
+        if not user_data or not user_data.get('access_token'):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not authenticated with Spotify"
@@ -110,7 +124,7 @@ async def get_playlist_details(
             return json.loads(cached_data)
         
         # Get playlist from Spotify
-        spotify_service = SpotifyService(user.access_token)
+        spotify_service = SpotifyService(user_data['access_token'])
         playlist_data = await spotify_service.get_playlist_details(playlist_id)
         
         # Cache for 10 minutes
