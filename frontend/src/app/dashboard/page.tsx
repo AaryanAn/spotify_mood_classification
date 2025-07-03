@@ -33,7 +33,102 @@ interface Playlist {
   }
 }
 
+interface AnalysisStep {
+  id: string
+  label: string
+  description: string
+  emoji: string
+}
 
+const analysisSteps: AnalysisStep[] = [
+  {
+    id: 'saving',
+    label: 'Saving Playlist',
+    description: 'Adding your playlist to our database...',
+    emoji: '💾'
+  },
+  {
+    id: 'metadata',
+    label: 'Gathering Metadata',
+    description: 'Collecting song details and audio features...',
+    emoji: '🎵'
+  },
+  {
+    id: 'lyrics',
+    label: 'Fetching Lyrics',
+    description: 'Getting lyrics for sentiment analysis...',
+    emoji: '📝'
+  },
+  {
+    id: 'analyzing',
+    label: 'AI Analysis',
+    description: 'Our AI is discovering the emotional essence...',
+    emoji: '🧠'
+  },
+  {
+    id: 'complete',
+    label: 'Analysis Complete',
+    description: 'Revealing your playlist\'s mood profile...',
+    emoji: '✨'
+  }
+]
+
+const AnalysisToggle = ({ enabled, setEnabled }: { enabled: boolean, setEnabled: (enabled: boolean) => void }) => {
+  return (
+    <div className="glass rounded-2xl p-6 mb-8">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <h3 className="text-xl font-bold text-white mb-2">Enhanced Analysis Mode</h3>
+          <p className="text-gray-400 text-sm">
+            {enabled 
+              ? "Using AI-powered lyrics analysis for deeper emotional insights 🧠✨" 
+              : "Using genre and audio features for quick mood detection 🎵"}
+          </p>
+        </div>
+        <button
+          onClick={() => setEnabled(!enabled)}
+          className={`relative inline-flex h-12 w-24 items-center rounded-full transition-colors duration-300 focus:outline-none ${
+            enabled ? 'bg-spotify-green' : 'bg-gray-700'
+          }`}
+        >
+          <span
+            className={`inline-block h-10 w-10 transform rounded-full bg-white shadow-lg transition-transform duration-300 ${
+              enabled ? 'translate-x-13' : 'translate-x-1'
+            }`}
+          />
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-medium">
+            <span className={`absolute left-3 transition-opacity duration-300 ${enabled ? 'opacity-0' : 'opacity-100'}`}>
+              Basic
+            </span>
+            <span className={`absolute right-3 transition-opacity duration-300 ${enabled ? 'opacity-100' : 'opacity-0'}`}>
+              Pro
+            </span>
+          </span>
+        </button>
+      </div>
+      
+      {/* Feature comparison */}
+      <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <h4 className="font-semibold text-spotify-green mb-2">Basic Analysis</h4>
+          <ul className="space-y-1 text-gray-400">
+            <li>• Genre classification</li>
+            <li>• Audio features</li>
+            <li>• Fast results (~2s)</li>
+          </ul>
+        </div>
+        <div>
+          <h4 className="font-semibold text-spotify-green mb-2">Enhanced Analysis</h4>
+          <ul className="space-y-1 text-gray-400">
+            <li>• Lyrics sentiment</li>
+            <li>• Emotional context</li>
+            <li>• Higher accuracy</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Dashboard() {
   const [user, setUser] = useState<User | null>(null)
@@ -49,6 +144,8 @@ export default function Dashboard() {
   const [showOwnOnly, setShowOwnOnly] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [playlistsPerPage] = useState(12)
+  const [currentStep, setCurrentStep] = useState<string>('saving')
+  const [analysisProgress, setAnalysisProgress] = useState(0)
   const router = useRouter()
 
   // Helper function to get API URL
@@ -128,89 +225,36 @@ export default function Dashboard() {
   const paginatedPlaylists = filteredPlaylists.slice(startIndex, startIndex + playlistsPerPage)
 
   const analyzePlaylist = async (playlist: Playlist) => {
-    console.log('🎵 [DEBUG] Starting playlist analysis:', {
-      playlistId: playlist.id,
-      playlistName: playlist.name,
-      timestamp: new Date().toISOString()
-    })
-    
     setAnalyzingPlaylist(playlist.id)
     setSelectedPlaylist(playlist)
     setAnalysis(null)
+    setCurrentStep('saving')
+    setAnalysisProgress(0)
 
     try {
       const token = localStorage.getItem('spotify_access_token')
-      console.log('🔑 [DEBUG] Token check:', {
-        hasToken: !!token,
-        tokenPrefix: token ? token.substring(0, 20) + '...' : 'null',
-        tokenLength: token?.length || 0
-      })
       
-      // First, save the playlist to our database
-      const saveUrl = `${getApiUrl()}/api/playlists/${playlist.id}/save`
-      console.log('💾 [DEBUG] Attempting to save playlist:', {
-        url: saveUrl,
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token?.substring(0, 20)}...`,
-        }
-      })
-
-      const saveResponse = await fetch(saveUrl, {
+      // Save playlist
+      setCurrentStep('saving')
+      setAnalysisProgress(10)
+      const saveResponse = await fetch(`${getApiUrl()}/api/playlists/${playlist.id}/save`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       })
-
-      console.log('💾 [DEBUG] Save response:', {
-        status: saveResponse.status,
-        statusText: saveResponse.statusText,
-        ok: saveResponse.ok,
-        headers: Object.fromEntries(saveResponse.headers.entries())
-      })
-
-      if (saveResponse.status === 401 || saveResponse.status === 403) {
-        console.error('🚫 [DEBUG] Token expired during save')
-        alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
-        handleLogout()
-        return
-      }
 
       if (!saveResponse.ok) {
-        const errorText = await saveResponse.text()
-        console.error('💾 [DEBUG] Save failed:', {
-          status: saveResponse.status,
-          errorText: errorText
-        })
-        
-        // Show specific error messages based on status code
-        if (saveResponse.status === 429) {
-          alert('Rate limit exceeded. Please wait a moment and try again.')
-        } else if (saveResponse.status >= 500) {
-          alert('Server error occurred. Please try again in a few moments.')
-        } else {
-          alert(`Failed to save playlist (${saveResponse.status}). Please check your connection and try again.`)
-        }
-        return
+        throw new Error(`Failed to save playlist: ${saveResponse.status}`)
       }
 
-      console.log('✅ [DEBUG] Playlist saved successfully')
-
-      // Then analyze the playlist  
-      const analyzeUrl = `${getApiUrl()}/api/mood-analysis/${playlist.id}/analyze${useLyrics ? '?use_lyrics=true' : ''}`
-      console.log('🔍 [DEBUG] Attempting to analyze playlist:', {
-        url: analyzeUrl,
-        method: 'POST',
-        useLyrics: useLyrics,
-        analysisType: useLyrics ? 'Enhanced (with lyrics)' : 'Standard (genre + metadata)',
-        headers: {
-          'Authorization': `Bearer ${token?.substring(0, 20)}...`,
-        }
-      })
-
-      const response = await fetch(analyzeUrl, {
+      // Start analysis
+      setCurrentStep('metadata')
+      setAnalysisProgress(30)
+      
+      const analyzeUrl = `${getApiUrl()}/api/mood-analysis/${playlist.id}/analyze?use_lyrics=${useLyrics}`
+      const analyzeResponse = await fetch(analyzeUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -218,51 +262,30 @@ export default function Dashboard() {
         },
       })
 
-      console.log('🔍 [DEBUG] Analysis response:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        headers: Object.fromEntries(response.headers.entries())
-      })
-
-      if (response.status === 401 || response.status === 403) {
-        console.error('🚫 [DEBUG] Token expired during analysis')
-        alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
-        handleLogout()
-        return
+      if (!analyzeResponse.ok) {
+        throw new Error(`Failed to start analysis: ${analyzeResponse.status}`)
       }
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('🔍 [DEBUG] Analysis failed:', {
-          status: response.status,
-          errorText: errorText
-        })
-        
-        // Show specific error messages based on status code
-        if (response.status === 404) {
-          alert('Playlist not found. Please try saving the playlist again.')
-        } else if (response.status === 429) {
-          alert('Rate limit exceeded. Please wait a moment and try again.')
-        } else if (response.status >= 500) {
-          alert('Server error occurred during analysis. Please try again in a few moments.')
-        } else {
-          alert(`Failed to analyze playlist (${response.status}). Please try again.`)
-        }
-        return
+      // If using lyrics, show lyrics step
+      if (useLyrics) {
+        setCurrentStep('lyrics')
+        setAnalysisProgress(50)
+        await new Promise(resolve => setTimeout(resolve, 2000)) // Give time for lyrics fetching
       }
 
-      console.log('✅ [DEBUG] Analysis started successfully')
-      
+      setCurrentStep('analyzing')
+      setAnalysisProgress(75)
+
       // Poll for results
-      await pollForAnalysisResults(playlist.id)
+      const results = await pollForAnalysisResults(playlist.id)
+      
+      setCurrentStep('complete')
+      setAnalysisProgress(100)
+      setAnalysis(results)
+
     } catch (error) {
-      console.error('❌ [DEBUG] Error analyzing playlist:', {
-        error: error,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : 'No stack trace'
-      })
-      alert('Failed to analyze playlist. This is often due to an expired Spotify session. Please log out and log back in to refresh your token.')
+      console.error('Analysis error:', error)
+      alert(error instanceof Error ? error.message : 'Failed to analyze playlist')
     } finally {
       setAnalyzingPlaylist(null)
     }
@@ -793,35 +816,18 @@ export default function Dashboard() {
             </>
           ) : (
             <>
+              {/* Add the toggle here */}
+              <AnalysisToggle 
+                enabled={useLyrics} 
+                setEnabled={setUseLyrics}
+              />
+              
               {/* Controls Header */}
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <p className="text-gray-300 mb-3">
                     Select a playlist to analyze its mood ({filteredPlaylists.length} playlists found)
                   </p>
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-400">Analysis Type:</span>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={useLyrics}
-                        onChange={(e) => setUseLyrics(e.target.checked)}
-                        className="w-4 h-4 text-spotify-green bg-gray-700 border-gray-600 rounded focus:ring-spotify-green focus:ring-2"
-                      />
-                      <span className="text-sm">
-                        {useLyrics ? (
-                          <span className="text-spotify-green font-semibold">🎵 Enhanced (with lyrics)</span>
-                        ) : (
-                          <span className="text-gray-300">📊 Standard (genre + metadata)</span>
-                        )}
-                      </span>
-                    </label>
-                    {useLyrics && (
-                      <span className="text-xs text-gray-500 bg-gray-700 px-2 py-1 rounded">
-                        Powered by Genius API
-                      </span>
-                    )}
-                  </div>
                 </div>
                 <button 
                   onClick={() => setShowPlaylists(false)}
@@ -1041,6 +1047,50 @@ export default function Dashboard() {
             </>
           )}
         </div>
+
+        {/* Analysis Progress Indicator */}
+        {analyzingPlaylist && (
+          <div className="glass rounded-3xl p-8 mb-8 fade-in">
+            <div className="max-w-2xl mx-auto">
+              <div className="mb-6">
+                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-spotify-green to-spotify-green-light transition-all duration-500 ease-out"
+                    style={{ width: `${analysisProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {analysisSteps.map((step) => (
+                  <div 
+                    key={step.id}
+                    className={`flex items-center gap-4 p-4 rounded-xl transition-all duration-300 ${
+                      currentStep === step.id 
+                        ? 'bg-spotify-green/10 border border-spotify-green/20' 
+                        : currentStep === 'complete' && step.id !== 'complete'
+                          ? 'opacity-50'
+                          : ''
+                    }`}
+                  >
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${
+                      currentStep === step.id ? 'animate-bounce' : ''
+                    }`}>
+                      {step.emoji}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-white">{step.label}</h3>
+                      <p className="text-sm text-gray-400">{step.description}</p>
+                    </div>
+                    {currentStep === step.id && (
+                      <div className="w-6 h-6 border-2 border-spotify-green border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   )
