@@ -6,7 +6,7 @@ import asyncio
 from typing import Dict, List, Any, Optional
 import structlog
 import re
-import lyricsgenius
+import requests
 from bs4 import BeautifulSoup
 import redis
 import json
@@ -22,25 +22,20 @@ class LyricsService:
     
     def __init__(self):
         self.settings = get_settings()
-        self.genius = None
+        self.genius_token = None
         self.redis_client = None
         self._initialize_services()
         
     def _initialize_services(self):
         """Initialize Genius API and Redis clients"""
         try:
-            # Initialize Genius API
+            # Initialize Genius API with direct requests
             genius_token = self.settings.genius_access_token
-            if genius_token:
-                self.genius = lyricsgenius.Genius(genius_token)
-                self.genius.timeout = 10  # 10 second timeout
-                self.genius.sleep_time = 0.2  # Rate limiting
-                self.genius.remove_section_headers = True
-                self.genius.skip_non_songs = True
-                self.genius.excluded_terms = ["(Remix)", "(Live)", "(Acoustic)", "(Instrumental)"]
-                logger.info("Genius API client initialized")
+            if genius_token and genius_token.strip():
+                self.genius_token = genius_token
+                logger.info("Genius API token configured for direct API calls")
             else:
-                logger.warning("Genius API token not provided, lyrics analysis disabled")
+                logger.warning("Genius API token not provided or empty - lyrics analysis will be disabled")
                 
             # Initialize Redis for caching
             try:
@@ -65,7 +60,7 @@ class LyricsService:
     
     async def get_lyrics(self, track_name: str, artist_name: str, track_id: str) -> Optional[str]:
         """
-        Fetch lyrics for a track with caching
+        Fetch lyrics for a track with caching using official Genius API
         
         Args:
             track_name: Name of the track
@@ -75,7 +70,7 @@ class LyricsService:
         Returns:
             Lyrics text or None if not found
         """
-        if not self.genius:
+        if not self.genius_token:
             return None
             
         cache_key = f"lyrics:{track_id}"
@@ -90,7 +85,7 @@ class LyricsService:
             clean_track = self._clean_track_name(track_name)
             clean_artist = self._clean_artist_name(artist_name)
             
-            # Search for song on Genius
+            # Search for song on Genius using official API
             logger.info("Fetching lyrics from Genius", 
                        track=clean_track, 
                        artist=clean_artist,
@@ -129,36 +124,124 @@ class LyricsService:
             return None
     
     def _search_lyrics_sync(self, track_name: str, artist_name: str) -> Optional[str]:
-        """Synchronous lyrics search for thread pool execution"""
+        """Search for lyrics using official Genius API"""
         try:
-            # Try artist and track name first
-            song = self.genius.search_song(track_name, artist_name)
-            if song and song.lyrics:
-                return song.lyrics
+            print(f'Searching for "{track_name}" by {artist_name}...')
             
-            # Fallback: search by track name only
-            song = self.genius.search_song(track_name)
-            if song and song.lyrics and artist_name.lower() in song.artist.lower():
-                return song.lyrics
+            headers = {'Authorization': f'Bearer {self.genius_token}'}
+            
+            # Search for the song using official API
+            search_url = 'https://api.genius.com/search'
+            search_params = {
+                'q': f'{track_name} {artist_name}'
+            }
+            
+            response = requests.get(search_url, headers=headers, params=search_params, timeout=10)
+            
+            if response.status_code != 200:
+                logger.warning("Genius API search failed", 
+                             status_code=response.status_code, 
+                             error=response.text)
+                return None
+            
+            data = response.json()
+            hits = data.get('response', {}).get('hits', [])
+            
+            if not hits:
+                logger.info("No search results found")
+                return None
+            
+            # Find the best match
+            best_match = None
+            for hit in hits:
+                result = hit.get('result', {})
+                song_title = result.get('title', '').lower()
+                artist_name_result = result.get('primary_artist', {}).get('name', '').lower()
                 
-            return None
+                # Simple matching - check if track and artist names are similar
+                if (track_name.lower() in song_title or song_title in track_name.lower()) and \
+                   (artist_name.lower() in artist_name_result or artist_name_result in artist_name.lower()):
+                    best_match = result
+                    break
+            
+            if not best_match:
+                # If no exact match, use the first result
+                best_match = hits[0].get('result', {})
+            
+            # Get the song URL to fetch lyrics
+            song_url = best_match.get('url')
+            if not song_url:
+                logger.warning("No song URL found")
+                return None
+            
+            # Fetch lyrics from the song page
+            lyrics = self._scrape_lyrics_from_url(song_url)
+            return lyrics
             
         except Exception as e:
             logger.warning("Genius API search failed", error=str(e))
             return None
     
+    def _scrape_lyrics_from_url(self, song_url: str) -> Optional[str]:
+        """Scrape lyrics from Genius song page"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(song_url, headers=headers, timeout=10)
+            
+            if response.status_code != 200:
+                return None
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Try different selectors for lyrics
+            lyrics_selectors = [
+                '[data-lyrics-container="true"]',
+                '.lyrics',
+                '[class*="Lyrics__Container"]',
+                '.song_body-lyrics'
+            ]
+            
+            lyrics_text = ""
+            for selector in lyrics_selectors:
+                lyrics_elements = soup.select(selector)
+                if lyrics_elements:
+                    for element in lyrics_elements:
+                        lyrics_text += element.get_text(separator='\n') + '\n'
+                    break
+            
+            if lyrics_text.strip():
+                return lyrics_text.strip()
+            
+            # Fallback: search for any element containing lyrics-like content
+            possible_lyrics = soup.find_all(['div', 'p'], string=re.compile(r'\[.*\]'))
+            if possible_lyrics:
+                for element in possible_lyrics:
+                    parent = element.parent
+                    if parent:
+                        text = parent.get_text(separator='\n')
+                        if len(text) > 100:  # Likely to be lyrics if it's long enough
+                            return text
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("Error scraping lyrics", error=str(e))
+            return None
+    
     def _clean_track_name(self, track_name: str) -> str:
         """Clean track name for better search results"""
-        # Remove common suffixes that interfere with search
+        # Remove common suffixes and prefixes
         patterns = [
-            r'\s*\(feat\..*?\)',  # (feat. Artist)
-            r'\s*\(ft\..*?\)',    # (ft. Artist)
-            r'\s*\(with.*?\)',    # (with Artist)
-            r'\s*\(.*?remix.*?\)', # (Remix)
-            r'\s*\(.*?version.*?\)', # (Version)
-            r'\s*\(.*?edit.*?\)',   # (Edit)
-            r'\s*\-.*?remix',       # - Remix
-            r'\s*\-.*?version',     # - Version
+            r'\s*-\s*Remastered.*$',
+            r'\s*-\s*Remix.*$',
+            r'\s*\(Remastered.*\)$',
+            r'\s*\(Remix.*\)$',
+            r'\s*\(feat\..*\)$',
+            r'\s*\(ft\..*\)$',
+            r'\s*\(Live.*\)$',
+            r'\s*\(Acoustic.*\)$',
         ]
         
         cleaned = track_name
@@ -169,12 +252,12 @@ class LyricsService:
     
     def _clean_artist_name(self, artist_name: str) -> str:
         """Clean artist name for better search results"""
-        # Remove featuring artists, keep primary artist
+        # Remove common suffixes
         patterns = [
-            r'\s*feat\..*',
-            r'\s*ft\..*',
-            r'\s*&.*',
-            r'\s*,.*',
+            r'\s*feat\..*$',
+            r'\s*ft\..*$',
+            r'\s*featuring.*$',
+            r'\s*&.*$',
         ]
         
         cleaned = artist_name
@@ -184,7 +267,7 @@ class LyricsService:
         return cleaned.strip()
     
     def _process_lyrics(self, raw_lyrics: str) -> str:
-        """Process and clean raw lyrics from Genius"""
+        """Process and clean raw lyrics"""
         if not raw_lyrics:
             return ""
         
@@ -238,9 +321,9 @@ class LyricsService:
         except LangDetectException:
             return "unknown"
     
-    async def get_batch_lyrics(self, tracks: List[Dict[str, Any]], max_concurrent: int = 3) -> Dict[str, str]:
+    async def get_batch_lyrics(self, tracks: List[Dict[str, Any]], max_concurrent: int = 2) -> Dict[str, str]:
         """
-        Fetch lyrics for multiple tracks concurrently
+        Fetch lyrics for multiple tracks concurrently (reduced concurrency for stability)
         
         Args:
             tracks: List of track dictionaries with 'id', 'name', 'artist'
@@ -282,4 +365,4 @@ class LyricsService:
     
     def is_available(self) -> bool:
         """Check if lyrics service is properly configured and available"""
-        return self.genius is not None 
+        return self.genius_token is not None 

@@ -106,6 +106,7 @@ class Playlist(Base):
     spotify_url: Mapped[str] = mapped_column(String(200))
     image_url: Mapped[Optional[str]] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     analyzed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
@@ -145,6 +146,7 @@ class Track(Base):
     time_signature: Mapped[Optional[int]] = mapped_column(Integer)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PlaylistTrack(Base):
@@ -155,7 +157,8 @@ class PlaylistTrack(Base):
     playlist_id: Mapped[str] = mapped_column(String(50))
     track_id: Mapped[str] = mapped_column(String(50))
     position: Mapped[int] = mapped_column(Integer)
-    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class MoodAnalysis(Base):

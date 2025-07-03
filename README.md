@@ -1,6 +1,6 @@
 # 🎵 Spotify Playlist Mood Classification
 
-A production-ready web application that analyzes the emotional mood of Spotify playlists using machine learning and the Spotify Web API. Built with modern technologies including FastAPI, Next.js, PostgreSQL, Redis, and Docker.
+A comprehensive full-stack application that analyzes Spotify playlists to classify their mood using advanced machine learning techniques, combining genre metadata analysis with optional lyrics sentiment analysis.
 
 ## 📖 Overview
 
@@ -48,6 +48,7 @@ This application combines ML expertise with modern web development to create an 
 
 - Docker and Docker Compose
 - Spotify Developer Account
+- Genius API Account (optional, for lyrics analysis)
 - Git
 
 ### 1. Clone the Repository
@@ -61,10 +62,16 @@ cd spotify-mood-classification
 
 1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
 2. Create a new app
-3. Add redirect URI: `http://127.0.0.1:8080/callback`
+3. Add redirect URI: `https://your-domain.com/callback`
 4. Note down your `Client ID` and `Client Secret`
 
-### 3. Environment Configuration
+### 3. Genius API Setup (Optional)
+
+1. Go to [Genius API Clients](https://genius.com/api-clients)
+2. Create a new API client
+3. Copy the access token for lyrics analysis
+
+### 4. Environment Configuration
 
 Create a `.env` file in the root directory:
 
@@ -79,19 +86,22 @@ POSTGRES_PASSWORD=spotify_password
 REDIS_URL=redis://redis:6379
 
 # Spotify API Configuration (Replace with your actual credentials)
-SPOTIFY_CLIENT_ID=your_spotify_client_id_here
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret_here
-SPOTIFY_REDIRECT_URI=http://127.0.0.1:8080/callback
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+SPOTIFY_REDIRECT_URI=https://your-domain.com/callback
 
 # Security Configuration (Change this to a secure random string)
 JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
+
+# Genius API Configuration (Optional)
+GENIUS_ACCESS_TOKEN=your_genius_token  # Optional - enables lyrics analysis
 
 # Application Configuration
 ENVIRONMENT=development
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-### 4. Launch the Application
+### 5. Launch the Application
 
 ```bash
 # Start all services
@@ -101,7 +111,7 @@ docker compose up --build
 docker compose up -d --build
 ```
 
-### 5. Access the Application
+### 6. Access the Application
 
 - **Frontend**: http://127.0.0.1:8080
 - **Backend API**: http://localhost:8000
@@ -188,6 +198,7 @@ JWT_SECRET_KEY=your-secure-production-jwt-key
 DATABASE_URL=your-production-database-url
 REDIS_URL=your-production-redis-url
 SPOTIFY_REDIRECT_URI=https://yourdomain.com/callback
+GENIUS_ACCESS_TOKEN=your_genius_token  # Optional - enables lyrics analysis
 ```
 
 ## 🐛 Troubleshooting
@@ -232,6 +243,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - Spotify Web API for audio features
+- Genius API for lyrics data
 - FastAPI for the excellent Python web framework
 - Next.js team for the amazing React framework
 - All open-source contributors

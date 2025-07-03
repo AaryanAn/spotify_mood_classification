@@ -32,7 +32,6 @@ prometheus-client==0.19.0
 structlog==23.2.0
 # Lyrics Analysis Dependencies
 nltk==3.9.1
-lyricsgenius==3.6.4
 beautifulsoup4==4.13.4
-langdetect==1.0.9 # Fixed greenlet dependency
-# Trigger latest deployment with Python 3.11.11 fix
+langdetect==1.0.9
+# Updated lyrics service to use official Genius API directly (removed lyricsgenius)

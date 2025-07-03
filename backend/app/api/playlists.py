@@ -113,7 +113,7 @@ async def get_playlist_details(
         
         # Check cache first
         redis_client = aioredis.from_url(settings.redis_url)
-        cache_key = f"playlist_details:{playlist_id}"
+        cache_key = f"playlist_details:{playlist_id}:{current_user_id}"
         cached_data = await redis_client.get(cache_key)
         
         if cached_data:
