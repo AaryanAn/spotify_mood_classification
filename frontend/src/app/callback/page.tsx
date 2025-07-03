@@ -18,6 +18,10 @@ export default function CallbackPage() {
       }
       isProcessing.current = true
       try {
+        if (!searchParams) {
+          throw new Error('No search parameters found')
+        }
+        
         const code = searchParams.get('code')
         const state = searchParams.get('state')
         const error = searchParams.get('error')
