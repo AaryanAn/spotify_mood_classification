@@ -291,44 +291,37 @@ export default function Dashboard() {
     }
   }
 
-  const pollForAnalysisResults = async (playlistId: string) => {
-    const maxAttempts = 30 // 30 seconds max wait
+  const pollForAnalysisResults = async (playlistId: string): Promise<MoodAnalysis> => {
+    const maxAttempts = 30
+    const pollInterval = 2000 // 2 seconds
     let attempts = 0
 
-    const poll = async () => {
-              try {
-          const token = localStorage.getItem('spotify_access_token')
-          const response = await fetch(`${getApiUrl()}/api/mood-analysis/${playlistId}/analysis`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        })
+    while (attempts < maxAttempts) {
+      const token = localStorage.getItem('spotify_access_token')
+      const response = await fetch(`${getApiUrl()}/api/mood-analysis/${playlistId}/analysis`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
 
-        if (response.status === 401 || response.status === 403) {
-          alert('Your Spotify session has expired. Please log out and log back in to refresh your token.')
-          handleLogout()
-          return false
-        }
-
-        if (response.ok) {
-          const analysisData = await response.json()
-          setAnalysis(analysisData)
-          return true
-        }
-
+      if (response.status === 404) {
         attempts++
-        if (attempts < maxAttempts) {
-          setTimeout(poll, 1000) // Poll every second
-        } else {
-          throw new Error('Analysis timeout')
+        if (attempts >= maxAttempts) {
+          throw new Error('Analysis timed out. Please try again.')
         }
-      } catch (error) {
-        console.error('Error polling for results:', error)
-        alert('Analysis is taking longer than expected. Please refresh and check again.')
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+        continue
       }
+
+      if (!response.ok) {
+        throw new Error(`Failed to get analysis results: ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data as MoodAnalysis
     }
 
-    await poll()
+    throw new Error('Analysis timed out. Please try again.')
   }
 
   const getMoodEmoji = (mood: string) => {
