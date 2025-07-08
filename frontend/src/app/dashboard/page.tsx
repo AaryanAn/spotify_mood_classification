@@ -93,7 +93,7 @@ const AnalysisToggle = ({ enabled, setEnabled }: { enabled: boolean, setEnabled:
         >
           <span
             className={`inline-block h-10 w-10 transform rounded-full bg-white shadow-lg transition-transform duration-300 ${
-              enabled ? 'translate-x-13' : 'translate-x-1'
+              enabled ? 'translate-x-12' : 'translate-x-1'
             }`}
           />
           <span className="absolute inset-0 flex items-center justify-center text-xs font-medium">
@@ -245,6 +245,12 @@ export default function Dashboard() {
         },
       })
 
+      if (saveResponse.status === 401 || saveResponse.status === 403) {
+        alert('Your session has expired. Please log in again.')
+        handleLogout()
+        return
+      }
+
       if (!saveResponse.ok) {
         throw new Error(`Failed to save playlist: ${saveResponse.status}`)
       }
@@ -261,6 +267,12 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
         },
       })
+
+      if (analyzeResponse.status === 401 || analyzeResponse.status === 403) {
+        alert('Your session has expired. Please log in again.')
+        handleLogout()
+        return
+      }
 
       if (!analyzeResponse.ok) {
         throw new Error(`Failed to start analysis: ${analyzeResponse.status}`)
@@ -285,7 +297,13 @@ export default function Dashboard() {
 
     } catch (error) {
       console.error('Analysis error:', error)
-      alert(error instanceof Error ? error.message : 'Failed to analyze playlist')
+      const errorMessage = error instanceof Error ? error.message : 'Failed to analyze playlist'
+      
+      if (errorMessage.includes('session has expired')) {
+        handleLogout()
+      } else {
+        alert(errorMessage)
+      }
     } finally {
       setAnalyzingPlaylist(null)
     }
@@ -303,6 +321,10 @@ export default function Dashboard() {
           'Authorization': `Bearer ${token}`,
         },
       })
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Your session has expired. Please log in again.')
+      }
 
       if (response.status === 404) {
         attempts++
